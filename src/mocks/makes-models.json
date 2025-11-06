@@ -1,0 +1,42 @@
+[
+  {
+    "id": "vaz",
+    "label": "ВАЗ",
+    "value": "vaz",
+    "keywords": ["lada", "ваз"],
+    "models": ["LADA Granta", "LADA Vesta", "LADA Vesta SW", "LADA Kalina", "LADA Priora", "LADA Niva Travel"]
+  },
+  {
+    "id": "gaz",
+    "label": "ГАЗ",
+    "value": "gaz",
+    "keywords": ["gaz", "гaз", "газ", "gazelle", "газель"],
+    "models": ["ГАЗель Next", "ГАЗель Business"]
+  },
+  {
+    "id": "foreign",
+    "label": "Иномарки",
+    "value": "foreign",
+    "keywords": ["toyota", "mercedes", "kia", "hyundai", "renault", "volkswagen", "audi"],
+    "models": [
+      "Toyota Land Cruiser 200",
+      "Toyota Land Cruiser Prado 150",
+      "Toyota Camry",
+      "Toyota RAV4",
+      "Mercedes-Benz W222",
+      "Mercedes-Benz GLS",
+      "Mercedes-Benz Sprinter",
+      "KIA Sportage",
+      "KIA Sorento",
+      "Hyundai Tucson",
+      "Hyundai Santa Fe",
+      "Hyundai Solaris",
+      "Renault Duster",
+      "Renault Logan",
+      "Volkswagen Golf GTI",
+      "Volkswagen Transporter T5",
+      "Volkswagen Multivan T5",
+      "Audi A3 1.8 TFSI"
+    ]
+  }
+]

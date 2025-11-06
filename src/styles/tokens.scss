@@ -1,0 +1,48 @@
+:root {
+  --container-max: 1200px;
+  --gutter: 24px;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 40px;
+  --space-8: 48px;
+
+  --fz-h1: 36px;
+  --lh-h1: 44px;
+  --fz-h2: 28px;
+  --lh-h2: 36px;
+  --fz-h3: 22px;
+  --lh-h3: 28px;
+  --fz-body: 16px;
+  --lh-body: 24px;
+  --fz-caption: 14px;
+  --lh-caption: 20px;
+
+  --brand-primary: #0057b8;
+  --text-primary: #111111;
+  --text-secondary: #4f4f4f;
+  --bg: #f4f4f4;
+  --surface: #ffffff;
+  --accent: #76c2f0;
+  --border: #dddddd;
+  --success: #1f9d6f;
+  --warning: #e3a008;
+  --danger: #d64550;
+
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 20px 40px rgba(0, 0, 0, 0.12);
+}
+
+$breakpoint-desktop: 1280px;
+$breakpoint-laptop: 992px;
+$breakpoint-tablet: 768px;
+$breakpoint-mobile: 480px;

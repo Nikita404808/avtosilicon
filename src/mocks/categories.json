@@ -1,0 +1,14 @@
+[
+  { "id": "engine", "label": "Двигатель" },
+  { "id": "sealants", "label": "Прокладки и герметики" },
+  { "id": "suspension", "label": "Подвеска" },
+  { "id": "mounts", "label": "Опоры и крепления" },
+  { "id": "intake", "label": "Впуск и турбонаддув" },
+  { "id": "cooling", "label": "Система охлаждения" },
+  { "id": "drivetrain", "label": "Трансмиссия и привод" },
+  { "id": "fuel", "label": "Топливная система" },
+  { "id": "brakes", "label": "Тормозная система" },
+  { "id": "body", "label": "Кузов и салон" },
+  { "id": "transmission", "label": "Коробка передач" },
+  { "id": "accessories", "label": "Аксессуары" }
+]

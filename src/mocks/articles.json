@@ -1,0 +1,110 @@
+[
+  {
+    "id": "a-100",
+    "slug": "grafik-raboty-na-novyi-god",
+    "title": "График работы АВТОСИЛИКОН в новогодние праздники",
+    "date": "2024-12-20",
+    "excerpt": "Рассказываем о режиме работы офиса, склада и службы поддержки в праздничные дни.",
+    "image": "/placeholder/about/expo.svg",
+    "tags": ["news"]
+  },
+  {
+    "id": "a-101",
+    "slug": "seriya-cs20-pro",
+    "title": "Представляем спортивную серию АВТОСИЛИКОН PRO",
+    "date": "2024-12-10",
+    "excerpt": "Новая линейка компонентов с усиленным полиуретаном и увеличенной гарантией.",
+    "image": "/placeholder/about/racing.svg",
+    "tags": ["news", "reviews"]
+  },
+  {
+    "id": "a-102",
+    "slug": "otzyvy-drive2-2024",
+    "title": "Отзывы с DRIVE2: 60 000 км с деталями АВТОСИЛИКОН",
+    "date": "2024-11-28",
+    "excerpt": "Подборка живых отзывов от владельцев, делящихся опытом эксплуатации.",
+    "image": "/placeholder/life/drive2.svg",
+    "tags": ["reviews"]
+  },
+  {
+    "id": "a-103",
+    "slug": "test-shlangov-pri-minus-40",
+    "title": "Тестируем силиконовые шланги при -40°C",
+    "date": "2024-11-12",
+    "excerpt": "Проверяем устойчивость материалов к экстремальному холоду в климатической камере.",
+    "image": "/placeholder/usp/delivery.svg",
+    "tags": ["tests"]
+  },
+  {
+    "id": "a-104",
+    "slug": "endurance-10000-km",
+    "title": "10 000 км endurance-теста на трассе Москва — Владивосток",
+    "date": "2024-10-18",
+    "excerpt": "Рассказ о длительном тест-драйве с полной загрузкой автомобиля и анализом износа.",
+    "image": "/placeholder/achievements/racing.svg",
+    "tags": ["tests"]
+  },
+  {
+    "id": "a-105",
+    "slug": "sravnenie-s-oem-kolodkami",
+    "title": "Сравнение тормозных колодок АВТОСИЛИКОН с OEM",
+    "date": "2024-09-28",
+    "excerpt": "Разбираем результаты лабораторных испытаний: ресурс, коэффициент трения, шумы.",
+    "image": "/placeholder/achievements/expo.svg",
+    "tags": ["tests", "reviews"]
+  },
+  {
+    "id": "a-106",
+    "slug": "kak-podobrat-sailentbloki",
+    "title": "Как подобрать сайлентблоки под стиль вождения",
+    "date": "2024-09-05",
+    "excerpt": "Инженеры АВТОСИЛИКОН объясняют разницу между линейками Classic, Pro и Offroad.",
+    "image": "/placeholder/product.svg",
+    "tags": ["reviews"]
+  },
+  {
+    "id": "a-107",
+    "slug": "trekday-cs20-racing",
+    "title": "Трек-день АВТОСИЛИКОН Racing: итоги сезона",
+    "date": "2024-08-16",
+    "excerpt": "Подводим итоги выступления команд и делимся планами на следующий сезон.",
+    "image": "/placeholder/life/racing.svg",
+    "tags": ["news"]
+  },
+  {
+    "id": "a-108",
+    "slug": "faq-po-garantii",
+    "title": "Ответы на вопросы по гарантии АВТОСИЛИКОН",
+    "date": "2024-08-01",
+    "excerpt": "Собрали популярные вопросы клиентов и объяснили как работает расширенная гарантия.",
+    "image": "/placeholder/usp/warranty.svg",
+    "tags": ["news"]
+  },
+  {
+    "id": "a-109",
+    "slug": "novye-partnery-marketpleisy",
+    "title": "Новые партнёры на маркетплейсах",
+    "date": "2024-07-15",
+    "excerpt": "Теперь продукцию АВТОСИЛИКОН можно купить в дополнительных точках продаж.",
+    "image": "/placeholder/mp/ozon.svg",
+    "tags": ["news"]
+  },
+  {
+    "id": "a-110",
+    "slug": "obsor-polnogo-komplekta-offroad",
+    "title": "Обзор полного комплекта Offroad для LADA Niva",
+    "date": "2024-06-28",
+    "excerpt": "Разбираем преимущества полного переоборудования внедорожника на компоненты АВТОСИЛИКОН.",
+    "image": "/placeholder/about/pack2.svg",
+    "tags": ["reviews"]
+  },
+  {
+    "id": "a-111",
+    "slug": "rukovodstvo-po-dostavke",
+    "title": "Как оформить доставку АВТОСИЛИКОН в регионы",
+    "date": "2024-06-10",
+    "excerpt": "Пошаговая инструкция по выбору службы доставки и отслеживанию заказа.",
+    "image": "/placeholder/usp/delivery.svg",
+    "tags": ["news"]
+  }
+]

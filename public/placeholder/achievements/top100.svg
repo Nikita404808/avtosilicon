@@ -1,0 +1,5 @@
+<svg width="160" height="160" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="160" height="160" rx="24" fill="#330044"/>
+  <path d="M80 36L52 60V104L80 124L108 104V60L80 36Z" fill="#FF2AD4" opacity="0.85"/>
+  <text x="80" y="96" text-anchor="middle" font-size="28" fill="#FFFFFF" font-family="Arial" font-weight="700">TOP</text>
+</svg>
