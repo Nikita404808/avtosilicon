@@ -90,41 +90,28 @@ export const useUserStore = defineStore('user', {
     setAuthToken(token: string | null) {
       this.authToken = token;
     },
+    setProfileFromAuth(user: { id: string; email: string; name?: string } | null) {
+      if (!user) {
+        this.profile = null;
+        return;
+      }
+
+      this.profile = {
+        id: user.id,
+        email: user.email,
+        name: user.name ?? formatNameFromEmail(user.email),
+        phone: this.profile?.phone,
+        loyaltyPoints: this.profile?.loyaltyPoints ?? 0,
+      };
+    },
     async fetchProfile() {
-      if (!this.authToken) return;
       this.isLoadingProfile = true;
       try {
-        const profile = await requestBankApi<UserProfile>('/users/me', {
-          headers: { Authorization: `Bearer ${this.authToken}` },
-        });
-        this.profile = profile;
+        const { useAuthStore } = await import('./auth');
+        const authStore = useAuthStore();
+        this.setProfileFromAuth(authStore.user);
       } catch (error) {
-        logBankError(error);
-        this.profile = this.profile ?? {
-          id: 'demo-user',
-          email: 'demo@cs20.ru',
-          name: 'Demo User',
-          phone: '+7 (900) 000-00-00',
-          loyaltyPoints: 120,
-        };
-        if (!this.pointsHistory.length) {
-          this.pointsHistory = [
-            {
-              id: 'points-earn-1',
-              type: 'earn',
-              amount: 100,
-              description: 'Регистрация аккаунта',
-              createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7).toISOString(),
-            },
-            {
-              id: 'points-spend-1',
-              type: 'spend',
-              amount: 40,
-              description: 'Оплата заказа АВТОСИЛИКОН-0001',
-              createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
-            },
-          ];
-        }
+        console.error('[User] Failed to sync profile from auth store', error);
       } finally {
         this.isLoadingProfile = false;
       }
@@ -358,4 +345,8 @@ function buildFallbackOrderItems(items: { productId: string; quantity: number }[
       };
     })
     .filter(Boolean) as OrderLine[];
+}
+
+function formatNameFromEmail(email: string) {
+  return email.split('@')[0] || email;
 }

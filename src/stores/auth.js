@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia';
 const USERS_STORAGE_KEY = 'cs20.auth.users';
-const SESSION_STORAGE_KEY = 'cs20.auth.session';
+const SESSION_STORAGE_KEY = 'auth_token';
 const RESET_TOKENS_STORAGE_KEY = 'cs20.auth.resetTokens';
 const RESET_TOKEN_TTL_MS = 1000 * 60 * 15;
+const AUTH_API_BASE = import.meta.env.VITE_AUTH_API_BASE ?? 'http://31.31.207.27:3000';
 const defaultState = () => ({
     user: null,
     token: null,
@@ -28,24 +29,20 @@ export const useAuthStore = defineStore('auth', {
             if (!isStorageAvailable())
                 return;
             this.cleanupExpiredResetTokens();
-            const rawSession = window.localStorage.getItem(SESSION_STORAGE_KEY);
-            if (!rawSession)
+            const token = window.localStorage.getItem(SESSION_STORAGE_KEY);
+            if (!token)
                 return;
             try {
-                const session = JSON.parse(rawSession);
-                if (!session.email || !session.token) {
-                    this.clearSession();
-                    return;
-                }
-                this.user = {
-                    id: session.email,
-                    email: session.email,
-                    name: formatNameFromEmail(session.email),
-                };
-                this.token = session.token;
+                const me = await requestAuth('/api/auth/me', {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                this.user = buildAuthUser(me);
+                this.token = token;
+                this.persistSession(token);
                 const { useUserStore } = await import('./user');
                 const userStore = useUserStore();
-                userStore.setAuthToken(session.token);
+                userStore.setAuthToken(token);
+                userStore.setProfileFromAuth(this.user);
                 await Promise.all([
                     userStore.fetchProfile(),
                     userStore.fetchAddresses(),
@@ -54,6 +51,8 @@ export const useAuthStore = defineStore('auth', {
             }
             catch (error) {
                 console.error('[Auth] Failed to restore session', error);
+                const { useUserStore } = await import('./user');
+                useUserStore().reset();
                 this.clearSession();
             }
         },
@@ -64,21 +63,17 @@ export const useAuthStore = defineStore('auth', {
                 this.setError(message);
                 throw new Error(message);
             }
-            const users = this.getStoredUsers();
-            if (users.some((user) => user.email === payload.email)) {
-                const message = 'Пользователь с таким email уже зарегистрирован.';
-                this.setError(message);
-                throw new Error(message);
+            try {
+                const response = await requestAuth('/api/auth/register', {
+                    method: 'POST',
+                    body: JSON.stringify({ email: payload.email, password: payload.password }),
+                });
+                await this.syncAuthSession(response, payload.password);
+                this.toggleModal(false);
             }
-            const passwordHash = await hashPassword(payload.password);
-            const newUser = {
-                email: payload.email,
-                passwordHash,
-                createdAt: new Date().toISOString(),
-            };
-            users.push(newUser);
-            this.saveStoredUsers(users);
-            await this.login(payload);
+            catch (error) {
+                this.handleRequestError(error);
+            }
         },
         async login(payload) {
             this.setError(null);
@@ -87,36 +82,46 @@ export const useAuthStore = defineStore('auth', {
                 this.setError(message);
                 throw new Error(message);
             }
-            const users = this.getStoredUsers();
-            const storedUser = users.find((user) => user.email === payload.email);
-            if (!storedUser) {
-                const message = 'Неверный email или пароль.';
-                this.setError(message);
-                throw new Error(message);
+            try {
+                const response = await requestAuth('/api/auth/login', {
+                    method: 'POST',
+                    body: JSON.stringify({ email: payload.email, password: payload.password }),
+                });
+                await this.syncAuthSession(response, payload.password);
+                this.toggleModal(false);
             }
-            const passwordHash = await hashPassword(payload.password);
-            if (storedUser.passwordHash !== passwordHash) {
-                const message = 'Неверный email или пароль.';
-                this.setError(message);
-                throw new Error(message);
+            catch (error) {
+                this.handleRequestError(error);
             }
-            const token = crypto.randomUUID?.() ?? Math.random().toString(36).slice(2);
-            this.user = {
-                id: payload.email,
-                email: payload.email,
-                name: formatNameFromEmail(payload.email),
-            };
-            this.token = token;
-            this.persistSession({ email: payload.email, token });
+        },
+        async syncAuthSession(response, plaintextPassword) {
+            const authUser = buildAuthUser(response);
+            this.user = authUser;
+            this.token = response.token;
+            this.persistSession(response.token);
+            if (plaintextPassword) {
+                await this.persistLocalShadowUser(authUser.email, plaintextPassword);
+            }
             const { useUserStore } = await import('./user');
             const userStore = useUserStore();
-            userStore.setAuthToken(token);
+            userStore.setAuthToken(response.token);
+            userStore.setProfileFromAuth(authUser);
             await Promise.all([
                 userStore.fetchProfile(),
                 userStore.fetchAddresses(),
                 userStore.fetchOrders(),
             ]);
-            this.toggleModal(false);
+        },
+        async persistLocalShadowUser(email, password) {
+            const users = this.getStoredUsers().filter((user) => user.email !== email);
+            const passwordHash = await hashPassword(password);
+            users.push({ email, passwordHash, createdAt: new Date().toISOString() });
+            this.saveStoredUsers(users);
+        },
+        handleRequestError(error) {
+            const message = error instanceof Error ? error.message : 'Не удалось выполнить запрос.';
+            this.setError(message);
+            throw error instanceof Error ? error : new Error(message);
         },
         async signIn(payload) {
             await this.login(payload);
@@ -221,10 +226,10 @@ export const useAuthStore = defineStore('auth', {
                 return;
             window.localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
         },
-        persistSession(session) {
+        persistSession(token) {
             if (!isStorageAvailable())
                 return;
-            window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+            window.localStorage.setItem(SESSION_STORAGE_KEY, token);
         },
     },
 });
@@ -233,6 +238,43 @@ function isStorageAvailable() {
 }
 function formatNameFromEmail(email) {
     return email.split('@')[0] || email;
+}
+async function requestAuth(path, options) {
+    const headers = {
+        ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(options?.headers ?? {}),
+    };
+    const response = await fetch(`${AUTH_API_BASE}${path}`, {
+        ...options,
+        headers,
+    });
+    const raw = await response.text();
+    let data = null;
+    if (raw) {
+        try {
+            data = JSON.parse(raw);
+        }
+        catch (error) {
+            console.warn('[Auth] Failed to parse auth API response', error);
+        }
+    }
+    if (!response.ok) {
+        const message = isRecord(data) && typeof data.message === 'string'
+            ? data.message
+            : 'Не удалось выполнить запрос к серверу авторизации.';
+        throw new Error(message);
+    }
+    return data;
+}
+function buildAuthUser(payload) {
+    return {
+        id: String(payload.id),
+        email: payload.email,
+        name: formatNameFromEmail(payload.email),
+    };
+}
+function isRecord(value) {
+    return Boolean(value) && typeof value === 'object';
 }
 async function hashPassword(password) {
     const cryptoSubtle = globalThis.crypto?.subtle;
