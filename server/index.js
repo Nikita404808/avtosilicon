@@ -17,8 +17,8 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
-const port = Number(process.env.PORT) || 3000;
-const allowedOrigin = process.env.CORS_ORIGIN ?? 'http://31.31.207.27:5173';
+const PORT = Number(process.env.PORT) || 3000;
+const ALLOWED_ORIGIN = process.env.CORS_ORIGIN || 'http://31.31.207.27:5173';
 const appBaseUrl = process.env.APP_BASE_URL ?? 'http://31.31.207.27:5173';
 const emailVerifyTtlMin = Number(process.env.EMAIL_VERIFY_TTL_MIN ?? 15);
 const passwordResetTtlMin = Number(process.env.PASSWORD_RESET_TTL_MIN ?? 30);
@@ -53,18 +53,27 @@ const resetThrottleMap = new Map();
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 
 const server = http.createServer(async (req, res) => {
-  setCorsHeaders(res);
+  setCors(res);
 
   if (req.method === 'OPTIONS') {
-    res.writeHead(204);
+    res.statusCode = 204;
     res.end();
     return;
   }
 
   const requestUrl = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
 
-  if (req.method === 'GET' && requestUrl.pathname === '/health') {
-    await respondHealthCheck(res);
+  if (req.method === 'GET' && requestUrl.pathname.startsWith('/health')) {
+    try {
+      await pool.query('SELECT 1');
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify({ ok: true }));
+    } catch (error) {
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify({ ok: false, error: 'db_unreachable' }));
+    }
     return;
   }
 
@@ -122,24 +131,14 @@ const server = http.createServer(async (req, res) => {
   res.end(JSON.stringify({ message: 'Not found' }));
 });
 
-server.listen(port, () => {
-  console.log(`Auth backend is listening on port ${port}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Auth backend is listening on port ${PORT}`);
 });
 
 process.on('SIGINT', async () => {
   await pool.end();
   process.exit(0);
 });
-
-const respondHealthCheck = async (res) => {
-  try {
-    await pool.query('SELECT 1');
-    sendJson(res, 200, { status: 'ok' });
-  } catch (error) {
-    console.error('Database health check failed:', error);
-    sendJson(res, 500, { status: 'error', message: 'Database unreachable' });
-  }
-};
 
 async function handleRegister(req, res) {
   try {
@@ -506,11 +505,14 @@ function sanitizeEmail(value) {
   return value.trim().toLowerCase();
 }
 
-function setCorsHeaders(res) {
-  res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,OPTIONS');
+function setCors(res) {
+  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader(
+    'Access-Control-Allow-Methods',
+    'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+  );
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
 }
 
 function sendJson(res, statusCode, payload) {

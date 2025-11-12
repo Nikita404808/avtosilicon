@@ -23,6 +23,24 @@
 
             <label for="password">Пароль</label>
             <div class="modal__input-wrapper">
+              <button
+                type="button"
+                class="modal__toggle"
+                :aria-pressed="String(showPassword)"
+                :aria-label="showPassword ? 'Скрыть пароль' : 'Показать пароль'"
+                @click="showPassword = !showPassword"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    v-if="!showPassword"
+                    d="M12 5c-4.5 0-8.5 2.8-10.5 7 2 4.2 6 7 10.5 7s8.5-2.8 10.5-7C20.5 7.8 16.5 5 12 5zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"
+                  />
+                  <path
+                    v-else
+                    d="M2 5.3 3.3 4l16.4 16.4-1.3 1.3-3.4-3.4A11.5 11.5 0 0 1 12 19c-4.5 0-8.5-2.8-10.5-7 1-2 2.5-3.7 4.4-5zm9.1 1.1c4-.2 7.7 2 9.9 5.9-.8 1.6-1.9 3-3.3 4.1l-2.6-2.6a4 4 0 0 0-4.9-4.9z"
+                  />
+                </svg>
+              </button>
               <input
                 id="password"
                 v-model="password"
@@ -31,18 +49,28 @@
                 :disabled="isLoading"
                 required
               />
-              <button
-                type="button"
-                class="modal__toggle"
-                @click="showPassword = !showPassword"
-                :aria-pressed="showPassword"
-              >
-                {{ showPassword ? '🙈' : '👁' }}
-              </button>
             </div>
 
             <label v-if="mode === 'register'" for="password-confirm">Повторите пароль</label>
             <div v-if="mode === 'register'" class="modal__input-wrapper">
+              <button
+                type="button"
+                class="modal__toggle"
+                :aria-pressed="String(showConfirmPassword)"
+                :aria-label="showConfirmPassword ? 'Скрыть пароль' : 'Показать пароль'"
+                @click="showConfirmPassword = !showConfirmPassword"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    v-if="!showConfirmPassword"
+                    d="M12 5c-4.5 0-8.5 2.8-10.5 7 2 4.2 6 7 10.5 7s8.5-2.8 10.5-7C20.5 7.8 16.5 5 12 5zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"
+                  />
+                  <path
+                    v-else
+                    d="M2 5.3 3.3 4l16.4 16.4-1.3 1.3-3.4-3.4A11.5 11.5 0 0 1 12 19c-4.5 0-8.5-2.8-10.5-7 1-2 2.5-3.7 4.4-5zm9.1 1.1c4-.2 7.7 2 9.9 5.9-.8 1.6-1.9 3-3.3 4.1l-2.6-2.6a4 4 0 0 0-4.9-4.9z"
+                  />
+                </svg>
+              </button>
               <input
                 id="password-confirm"
                 v-model="confirmPassword"
@@ -51,14 +79,6 @@
                 :disabled="isLoading"
                 required
               />
-              <button
-                type="button"
-                class="modal__toggle"
-                @click="showConfirmPassword = !showConfirmPassword"
-                :aria-pressed="showConfirmPassword"
-              >
-                {{ showConfirmPassword ? '🙈' : '👁' }}
-              </button>
             </div>
 
             <p v-if="errorMessage" class="modal__error">{{ errorMessage }}</p>
@@ -306,14 +326,15 @@ watch(showResetModal, (isOpen) => {
     border: 1px solid var(--border);
     padding: var(--space-2) var(--space-3);
     outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
 
     &:focus {
       border-color: var(--accent);
-      box-shadow: 0 0 0 2px rgba(255, 102, 0, 0.15);
+      box-shadow: 0 0 0 3px rgba(255, 102, 0, 0.2);
     }
   }
 
-  button {
+  > button:not(.modal__link) {
     margin-top: var(--space-4);
     border-radius: var(--radius-md);
     border: none;
@@ -321,10 +342,16 @@ watch(showResetModal, (isOpen) => {
     color: #fff;
     padding: var(--space-3) var(--space-5);
     font-weight: 600;
+    outline: none;
+    transition: box-shadow 0.15s ease, transform 0.02s ease;
 
     &:disabled {
       opacity: 0.6;
       cursor: not-allowed;
+    }
+
+    &:focus-visible {
+      box-shadow: 0 0 0 3px rgba(255, 102, 0, 0.25);
     }
   }
 }
@@ -374,13 +401,33 @@ watch(showResetModal, (isOpen) => {
 .modal__toggle {
   position: absolute;
   top: 50%;
-  right: var(--space-2);
+  left: var(--space-2);
   transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
+  border-radius: var(--radius-sm);
+  outline: none;
+
+  svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+    opacity: 0.8;
+  }
+
+  &:focus-visible {
+    box-shadow: 0 0 0 3px rgba(255, 102, 0, 0.25);
+  }
+}
+
+.modal__input-wrapper input {
+  padding-left: calc(var(--space-3) + 40px);
 }
 
 .modal-enter-from,
