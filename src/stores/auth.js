@@ -1,19 +1,19 @@
 import { defineStore } from 'pinia';
-const USERS_STORAGE_KEY = 'cs20.auth.users';
+import router from '@/router';
 const SESSION_STORAGE_KEY = 'auth_token';
-const RESET_TOKENS_STORAGE_KEY = 'cs20.auth.resetTokens';
-const RESET_TOKEN_TTL_MS = 1000 * 60 * 15;
 const AUTH_API_BASE = import.meta.env.VITE_AUTH_API_BASE ?? 'http://31.31.207.27:3000';
-const defaultState = () => ({
-    user: null,
-    token: null,
-    isAuthModalOpen: false,
-    authError: null,
-});
+const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY ?? '';
 export const useAuthStore = defineStore('auth', {
-    state: defaultState,
+    state: () => ({
+        user: null,
+        token: null,
+        isAuthModalOpen: false,
+        authError: null,
+        postAuthRedirect: null,
+    }),
     getters: {
         isAuthenticated: (state) => Boolean(state.user && state.token),
+        needsEmailVerification: (state) => Boolean(state.user && !state.user.emailVerified),
     },
     actions: {
         toggleModal(isOpen) {
@@ -28,7 +28,6 @@ export const useAuthStore = defineStore('auth', {
         async initialize() {
             if (!isStorageAvailable())
                 return;
-            this.cleanupExpiredResetTokens();
             const token = window.localStorage.getItem(SESSION_STORAGE_KEY);
             if (!token)
                 return;
@@ -57,82 +56,75 @@ export const useAuthStore = defineStore('auth', {
             }
         },
         async register(payload) {
-            this.setError(null);
-            if (!payload.email || !payload.password) {
-                const message = 'Введите email и пароль.';
-                this.setError(message);
-                throw new Error(message);
-            }
+            this.validateCredentials(payload);
             try {
+                const recaptchaToken = await getRecaptchaToken('register');
+                const body = {
+                    email: payload.email,
+                    password: payload.password,
+                    ...(recaptchaToken ? { recaptchaToken } : {}),
+                };
                 const response = await requestAuth('/api/auth/register', {
                     method: 'POST',
-                    body: JSON.stringify({ email: payload.email, password: payload.password }),
+                    body: JSON.stringify(body),
                 });
-                await this.syncAuthSession(response, payload.password);
-                this.toggleModal(false);
+                await this.syncAuthSession(response);
             }
             catch (error) {
                 this.handleRequestError(error);
             }
         },
         async login(payload) {
-            this.setError(null);
-            if (!payload.email || !payload.password) {
-                const message = 'Введите email и пароль.';
-                this.setError(message);
-                throw new Error(message);
-            }
+            this.validateCredentials(payload);
             try {
                 const response = await requestAuth('/api/auth/login', {
                     method: 'POST',
-                    body: JSON.stringify({ email: payload.email, password: payload.password }),
+                    body: JSON.stringify(payload),
                 });
-                await this.syncAuthSession(response, payload.password);
-                this.toggleModal(false);
+                await this.syncAuthSession(response);
             }
             catch (error) {
                 this.handleRequestError(error);
             }
         },
-        async syncAuthSession(response, plaintextPassword) {
+        async syncAuthSession(response) {
             const authUser = buildAuthUser(response);
             this.user = authUser;
-            this.token = response.token;
-            this.persistSession(response.token);
-            if (plaintextPassword) {
-                await this.persistLocalShadowUser(authUser.email, plaintextPassword);
+            if (response.token) {
+                this.token = response.token;
+                this.persistSession(response.token);
             }
             const { useUserStore } = await import('./user');
             const userStore = useUserStore();
-            userStore.setAuthToken(response.token);
+            if (this.token) {
+                userStore.setAuthToken(this.token);
+            }
             userStore.setProfileFromAuth(authUser);
             await Promise.all([
                 userStore.fetchProfile(),
                 userStore.fetchAddresses(),
                 userStore.fetchOrders(),
             ]);
-        },
-        async persistLocalShadowUser(email, password) {
-            const users = this.getStoredUsers().filter((user) => user.email !== email);
-            const passwordHash = await hashPassword(password);
-            users.push({ email, passwordHash, createdAt: new Date().toISOString() });
-            this.saveStoredUsers(users);
+            this.toggleModal(false);
+            await this.navigateAfterAuth();
         },
         handleRequestError(error) {
             const message = error instanceof Error ? error.message : 'Не удалось выполнить запрос.';
             this.setError(message);
             throw error instanceof Error ? error : new Error(message);
         },
-        async signIn(payload) {
-            await this.login(payload);
+        validateCredentials(payload) {
+            this.setError(null);
+            if (!payload.email || !payload.password) {
+                const message = 'Введите email и пароль.';
+                this.setError(message);
+                throw new Error(message);
+            }
         },
-        async signOut() {
+        async logout() {
             const { useUserStore } = await import('./user');
             useUserStore().reset();
             this.clearSession();
-        },
-        async logout() {
-            await this.signOut();
         },
         clearSession() {
             if (isStorageAvailable()) {
@@ -140,96 +132,74 @@ export const useAuthStore = defineStore('auth', {
             }
             this.user = null;
             this.token = null;
+            this.postAuthRedirect = null;
             this.setError(null);
-        },
-        async requestPasswordReset(email) {
-            this.setError(null);
-            const users = this.getStoredUsers();
-            const exists = users.some((user) => user.email === email);
-            if (!exists) {
-                const message = 'Пользователь с таким email не найден.';
-                this.setError(message);
-                throw new Error(message);
-            }
-            const token = crypto.randomUUID?.() ?? Math.random().toString(36).slice(2);
-            const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS).toISOString();
-            const tokens = this.getStoredResetTokens().filter((item) => item.email !== email);
-            tokens.push({ token, email, expiresAt });
-            this.saveStoredResetTokens(tokens);
-            return token;
-        },
-        validateResetToken(token) {
-            this.cleanupExpiredResetTokens();
-            const tokens = this.getStoredResetTokens();
-            const entry = tokens.find((item) => item.token === token);
-            return entry ?? null;
-        },
-        async resetPasswordWithToken(payload) {
-            this.setError(null);
-            this.cleanupExpiredResetTokens();
-            const tokens = this.getStoredResetTokens();
-            const entry = tokens.find((item) => item.token === payload.token);
-            if (!entry) {
-                const message = 'Токен недействителен или устарел.';
-                this.setError(message);
-                throw new Error(message);
-            }
-            const users = this.getStoredUsers();
-            const passwordHash = await hashPassword(payload.newPassword);
-            const updatedUsers = users.map((user) => user.email === entry.email ? { ...user, passwordHash } : user);
-            this.saveStoredUsers(updatedUsers);
-            const filteredTokens = tokens.filter((item) => item.token !== payload.token);
-            this.saveStoredResetTokens(filteredTokens);
-            await this.login({ email: entry.email, password: payload.newPassword });
-        },
-        getStoredResetTokens() {
-            if (!isStorageAvailable())
-                return [];
-            const raw = window.localStorage.getItem(RESET_TOKENS_STORAGE_KEY);
-            if (!raw)
-                return [];
-            try {
-                return JSON.parse(raw);
-            }
-            catch (error) {
-                console.warn('[Auth] Failed to parse reset tokens', error);
-                return [];
-            }
-        },
-        saveStoredResetTokens(tokens) {
-            if (!isStorageAvailable())
-                return;
-            window.localStorage.setItem(RESET_TOKENS_STORAGE_KEY, JSON.stringify(tokens));
-        },
-        cleanupExpiredResetTokens() {
-            const tokens = this.getStoredResetTokens();
-            const now = Date.now();
-            const filtered = tokens.filter((token) => new Date(token.expiresAt).getTime() > now);
-            this.saveStoredResetTokens(filtered);
-        },
-        getStoredUsers() {
-            if (!isStorageAvailable())
-                return [];
-            const raw = window.localStorage.getItem(USERS_STORAGE_KEY);
-            if (!raw)
-                return [];
-            try {
-                return JSON.parse(raw);
-            }
-            catch (error) {
-                console.warn('[Auth] Failed to parse stored users', error);
-                return [];
-            }
-        },
-        saveStoredUsers(users) {
-            if (!isStorageAvailable())
-                return;
-            window.localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
         },
         persistSession(token) {
             if (!isStorageAvailable())
                 return;
             window.localStorage.setItem(SESSION_STORAGE_KEY, token);
+        },
+        setPostAuthRedirect(path) {
+            this.postAuthRedirect = path;
+        },
+        async navigateAfterAuth() {
+            if (!this.postAuthRedirect)
+                return;
+            const redirect = this.postAuthRedirect;
+            this.postAuthRedirect = null;
+            try {
+                await router.push(redirect);
+            }
+            catch (error) {
+                console.warn('[Auth] Failed to navigate after login', error);
+            }
+        },
+        async sendVerifyCode() {
+            if (!this.token)
+                throw new Error('Требуется авторизация.');
+            await requestAuth('/api/auth/send-verify-code', {
+                method: 'POST',
+                headers: this.buildAuthHeaders(),
+            });
+        },
+        async verifyEmail(token) {
+            if (!token)
+                throw new Error('Введите код подтверждения.');
+            await requestAuth('/api/auth/verify-email', {
+                method: 'POST',
+                body: JSON.stringify({ token }),
+            });
+            this.patchUser({ emailVerified: true });
+        },
+        async requestPasswordReset(email) {
+            if (!email) {
+                this.setError('Введите email.');
+                throw new Error('Введите email.');
+            }
+            await requestAuth('/api/auth/request-password-reset', {
+                method: 'POST',
+                body: JSON.stringify({ email }),
+            });
+        },
+        async resetPassword(payload) {
+            if (!payload.token || !payload.newPassword) {
+                throw new Error('Введите токен и новый пароль.');
+            }
+            await requestAuth('/api/auth/reset-password', {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+        },
+        buildAuthHeaders() {
+            if (!this.token)
+                throw new Error('Нет токена.');
+            return { Authorization: `Bearer ${this.token}` };
+        },
+        patchUser(patch) {
+            if (!this.user)
+                return;
+            this.user = { ...this.user, ...patch };
         },
     },
 });
@@ -270,33 +240,51 @@ function buildAuthUser(payload) {
     return {
         id: String(payload.id),
         email: payload.email,
-        name: formatNameFromEmail(payload.email),
+        name: payload.name ?? formatNameFromEmail(payload.email),
+        emailVerified: Boolean(payload.email_verified),
     };
 }
 function isRecord(value) {
     return Boolean(value) && typeof value === 'object';
 }
-async function hashPassword(password) {
-    const cryptoSubtle = globalThis.crypto?.subtle;
-    if (cryptoSubtle) {
-        const encoder = new TextEncoder();
-        const data = encoder.encode(password);
-        const hashBuffer = await cryptoSubtle.digest('SHA-256', data);
-        return bufferToHex(hashBuffer);
+let recaptchaScriptPromise = null;
+async function getRecaptchaToken(action) {
+    if (typeof window === 'undefined' || !RECAPTCHA_SITE_KEY)
+        return null;
+    await ensureRecaptchaScript();
+    if (!window.grecaptcha) {
+        return null;
     }
-    return simpleHash(password);
-}
-function bufferToHex(buffer) {
-    return Array.from(new Uint8Array(buffer))
-        .map((byte) => byte.toString(16).padStart(2, '0'))
-        .join('');
-}
-function simpleHash(value) {
-    let hash = 0;
-    for (let index = 0; index < value.length; index += 1) {
-        const char = value.charCodeAt(index);
-        hash = (hash << 5) - hash + char;
-        hash |= 0;
+    await new Promise((resolve) => window.grecaptcha.ready(() => resolve()));
+    try {
+        return await window.grecaptcha.execute(RECAPTCHA_SITE_KEY, { action });
     }
-    return Math.abs(hash).toString(16);
+    catch (error) {
+        console.warn('[Auth] Failed to get reCAPTCHA token', error);
+        return null;
+    }
+}
+async function ensureRecaptchaScript() {
+    if (typeof document === 'undefined' || window.grecaptcha || !RECAPTCHA_SITE_KEY) {
+        return;
+    }
+    if (!recaptchaScriptPromise) {
+        recaptchaScriptPromise = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = `https://www.google.com/recaptcha/api.js?render=${RECAPTCHA_SITE_KEY}`;
+            script.async = true;
+            script.onload = () => resolve();
+            script.onerror = (event) => {
+                recaptchaScriptPromise = null;
+                reject(event);
+            };
+            document.head.appendChild(script);
+        });
+    }
+    try {
+        await recaptchaScriptPromise;
+    }
+    catch (error) {
+        console.warn('[Auth] Failed to load reCAPTCHA script', error);
+    }
 }

@@ -3,7 +3,7 @@
     <section v-if="!authStore.isAuthenticated" class="account-page__unauth">
       <h1>Войдите в личный кабинет</h1>
       <p>Для доступа к данным аккаунта необходимо авторизоваться.</p>
-      <button type="button" @click="authStore.toggleModal(true)">Войти</button>
+      <button type="button" @click="openAuth">Войти</button>
     </section>
     <UserAccount v-else />
   </div>
@@ -14,6 +14,11 @@ import { useAuthStore } from '@/stores/auth';
 import UserAccount from '@/components/account/UserAccount.vue';
 
 const authStore = useAuthStore();
+
+const openAuth = () => {
+  authStore.setPostAuthRedirect('/account');
+  authStore.toggleModal(true);
+};
 </script>
 
 <style scoped lang="scss">

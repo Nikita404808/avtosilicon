@@ -3,6 +3,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
+import nodemailer from 'nodemailer';
 
 const requiredEnv = ['DATABASE_URL'];
 const missingEnv = requiredEnv.filter((key) => !process.env[key]);
@@ -18,7 +19,37 @@ const pool = new Pool({
 
 const port = Number(process.env.PORT) || 3000;
 const allowedOrigin = process.env.CORS_ORIGIN ?? 'http://31.31.207.27:5173';
+const appBaseUrl = process.env.APP_BASE_URL ?? 'http://31.31.207.27:5173';
+const emailVerifyTtlMin = Number(process.env.EMAIL_VERIFY_TTL_MIN ?? 15);
+const passwordResetTtlMin = Number(process.env.PASSWORD_RESET_TTL_MIN ?? 30);
+const emailVerifyTtlMs = minutesToMs(emailVerifyTtlMin);
+const passwordResetTtlMs = minutesToMs(passwordResetTtlMin);
+const recaptchaSecret = process.env.RECAPTCHA_SECRET ?? '';
+const throttleWindowMs = 60 * 1000;
+
+const smtpConfig = {
+  host: process.env.SMTP_HOST ?? '',
+  port: Number(process.env.SMTP_PORT ?? 587),
+  user: process.env.SMTP_USER,
+  pass: process.env.SMTP_PASS,
+  from: process.env.SMTP_FROM ?? 'CS20 Auth <no-reply@example.com>',
+};
+
+const mailer = smtpConfig.host
+  ? nodemailer.createTransport({
+      host: smtpConfig.host,
+      port: smtpConfig.port,
+      secure: smtpConfig.port === 465,
+      auth:
+        smtpConfig.user && smtpConfig.pass
+          ? { user: smtpConfig.user, pass: smtpConfig.pass }
+          : undefined,
+    })
+  : null;
+
 const sessions = new Map();
+const verifyThrottleMap = new Map();
+const resetThrottleMap = new Map();
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 
 const server = http.createServer(async (req, res) => {
@@ -52,6 +83,41 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && requestUrl.pathname === '/api/auth/send-verify-code') {
+    await handleSendVerifyCode(req, res);
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/api/auth/verify-email') {
+    await handleVerifyEmail(req, res);
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/api/auth/request-password-reset') {
+    await handleRequestPasswordReset(req, res);
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/api/auth/reset-password') {
+    await handleResetPassword(req, res);
+    return;
+  }
+
+  if (req.method === 'PUT' && requestUrl.pathname === '/api/users/me/name') {
+    await handleUpdateName(req, res);
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/api/orders') {
+    await handleCreateOrder(req, res);
+    return;
+  }
+
+  if (req.method === 'GET' && requestUrl.pathname === '/api/orders') {
+    await handleGetOrders(req, res);
+    return;
+  }
+
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ message: 'Not found' }));
 });
@@ -80,6 +146,7 @@ async function handleRegister(req, res) {
     const payload = await readJsonBody(req);
     const email = sanitizeEmail(payload.email);
     const password = typeof payload.password === 'string' ? payload.password.trim() : '';
+    const recaptchaToken = typeof payload.recaptchaToken === 'string' ? payload.recaptchaToken : '';
 
     if (!email || !password) {
       sendJson(res, 400, { message: 'Email и пароль обязательны.' });
@@ -88,6 +155,12 @@ async function handleRegister(req, res) {
 
     if (password.length < 6) {
       sendJson(res, 400, { message: 'Пароль должен содержать не менее 6 символов.' });
+      return;
+    }
+
+    const captchaPassed = await verifyRecaptcha(recaptchaToken);
+    if (!captchaPassed) {
+      sendJson(res, 400, { error: 'captcha_failed' });
       return;
     }
 
@@ -102,7 +175,7 @@ async function handleRegister(req, res) {
       `
         INSERT INTO users (email, password_hash)
         VALUES ($1, $2)
-        RETURNING id, email
+        RETURNING id, email, name, email_verified
       `,
       [email, passwordHash],
     );
@@ -110,7 +183,7 @@ async function handleRegister(req, res) {
     const user = insertResult.rows[0];
     const token = createSession(user.id);
 
-    sendJson(res, 201, { id: String(user.id), email: user.email, token });
+    sendJson(res, 201, buildAuthResponse(user, token));
   } catch (error) {
     if (isClientError(error)) {
       sendJson(res, 400, { message: error.message });
@@ -131,9 +204,10 @@ async function handleLogin(req, res) {
       return;
     }
 
-    const queryResult = await pool.query('SELECT id, email, password_hash FROM users WHERE email = $1', [
-      email,
-    ]);
+    const queryResult = await pool.query(
+      'SELECT id, email, password_hash, name, email_verified FROM users WHERE email = $1',
+      [email],
+    );
 
     if (queryResult.rowCount === 0) {
       sendJson(res, 401, { message: 'Неверный email или пароль.' });
@@ -148,7 +222,7 @@ async function handleLogin(req, res) {
     }
 
     const token = createSession(user.id);
-    sendJson(res, 200, { id: String(user.id), email: user.email, token });
+    sendJson(res, 200, buildAuthResponse(user, token));
   } catch (error) {
     if (isClientError(error)) {
       sendJson(res, 400, { message: error.message });
@@ -160,27 +234,252 @@ async function handleLogin(req, res) {
 
 async function handleCurrentUser(req, res) {
   try {
-    const token = extractToken(req.headers['authorization']);
+    const user = await getAuthenticatedUser(req, res);
+    if (!user) {
+      return;
+    }
+
+    sendJson(res, 200, buildAuthResponse(user));
+  } catch (error) {
+    handleServerError(res, error);
+  }
+}
+
+async function handleSendVerifyCode(req, res) {
+  try {
+    const user = await getAuthenticatedUser(req, res, { includeSensitive: true });
+    if (!user) return;
+
+    if (user.email_verified) {
+      sendJson(res, 400, { message: 'Email уже подтверждён.' });
+      return;
+    }
+
+    if (isThrottled(verifyThrottleMap, `verify:${user.id}`)) {
+      sendJson(res, 429, { message: 'Слишком много запросов. Попробуйте позже.' });
+      return;
+    }
+
+    const verifyToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + emailVerifyTtlMs);
+
+    await pool.query(
+      `
+        UPDATE users
+        SET email_verification_token = $1,
+            email_verification_expires = $2,
+            updated_at = NOW()
+        WHERE id = $3
+      `,
+      [verifyToken, expiresAt.toISOString(), user.id],
+    );
+
+    await sendEmailVerification(user.email, verifyToken, emailVerifyTtlMin);
+
+    sendJson(res, 200, { success: true });
+  } catch (error) {
+    handleServerError(res, error);
+  }
+}
+
+async function handleVerifyEmail(req, res) {
+  try {
+    const payload = await readJsonBody(req);
+    const token = typeof payload.token === 'string' ? payload.token.trim() : '';
     if (!token) {
-      sendJson(res, 401, { message: 'Токен не найден.' });
+      sendJson(res, 400, { error: 'invalid_or_expired' });
       return;
     }
 
-    const session = getSession(token);
-    if (!session) {
-      sendJson(res, 401, { message: 'Сессия недействительна или устарела.' });
+    const result = await pool.query(
+      `
+        SELECT id, email_verification_expires
+        FROM users
+        WHERE email_verification_token = $1
+      `,
+      [token],
+    );
+
+    if (result.rowCount === 0) {
+      sendJson(res, 400, { error: 'invalid_or_expired' });
       return;
     }
 
-    const userResult = await pool.query('SELECT id, email FROM users WHERE id = $1', [session.userId]);
+    const user = result.rows[0];
+    if (!user.email_verification_expires || new Date(user.email_verification_expires).getTime() < Date.now()) {
+      sendJson(res, 400, { error: 'invalid_or_expired' });
+      return;
+    }
+
+    await pool.query(
+      `
+        UPDATE users
+        SET email_verified = true,
+            email_verification_token = NULL,
+            email_verification_expires = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [user.id],
+    );
+
+    sendJson(res, 200, { success: true });
+  } catch (error) {
+    handleServerError(res, error);
+  }
+}
+
+async function handleRequestPasswordReset(req, res) {
+  try {
+    const payload = await readJsonBody(req);
+    const email = sanitizeEmail(payload.email);
+
+    if (!email) {
+      sendJson(res, 200, { success: true });
+      return;
+    }
+
+    if (isThrottled(resetThrottleMap, `reset:${email}`)) {
+      sendJson(res, 200, { success: true });
+      return;
+    }
+
+    const userResult = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+
+    if (userResult.rowCount > 0) {
+      const token = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date(Date.now() + passwordResetTtlMs);
+      await pool.query(
+        `
+          UPDATE users
+          SET reset_token = $1,
+              reset_token_expires = $2,
+              updated_at = NOW()
+          WHERE id = $3
+        `,
+        [token, expiresAt.toISOString(), userResult.rows[0].id],
+      );
+
+      const link = `${appBaseUrl.replace(/\/$/, '')}/reset-password?token=${token}`;
+      await sendPasswordReset(email, link, passwordResetTtlMin);
+    }
+
+    sendJson(res, 200, { success: true });
+  } catch (error) {
+    handleServerError(res, error);
+  }
+}
+
+async function handleResetPassword(req, res) {
+  try {
+    const payload = await readJsonBody(req);
+    const token = typeof payload.token === 'string' ? payload.token.trim() : '';
+    const newPassword = typeof payload.newPassword === 'string' ? payload.newPassword.trim() : '';
+
+    if (!token || newPassword.length < 6) {
+      sendJson(res, 400, { error: 'invalid_or_expired' });
+      return;
+    }
+
+    const userResult = await pool.query(
+      'SELECT id, reset_token_expires FROM users WHERE reset_token = $1',
+      [token],
+    );
+
     if (userResult.rowCount === 0) {
-      sessions.delete(token);
-      sendJson(res, 401, { message: 'Пользователь не найден.' });
+      sendJson(res, 400, { error: 'invalid_or_expired' });
       return;
     }
 
     const user = userResult.rows[0];
-    sendJson(res, 200, { id: String(user.id), email: user.email });
+    if (!user.reset_token_expires || new Date(user.reset_token_expires).getTime() < Date.now()) {
+      sendJson(res, 400, { error: 'invalid_or_expired' });
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await pool.query(
+      `
+        UPDATE users
+        SET password_hash = $1,
+            reset_token = NULL,
+            reset_token_expires = NULL,
+            updated_at = NOW()
+        WHERE id = $2
+      `,
+      [passwordHash, user.id],
+    );
+
+    sendJson(res, 200, { success: true });
+  } catch (error) {
+    handleServerError(res, error);
+  }
+}
+
+async function handleUpdateName(req, res) {
+  try {
+    const authUser = await getAuthenticatedUser(req, res);
+    if (!authUser) return;
+
+    const payload = await readJsonBody(req);
+    const name = typeof payload.name === 'string' ? payload.name.trim() : '';
+
+    if (!name || name.length > 100) {
+      sendJson(res, 400, { message: 'Некорректное имя.' });
+      return;
+    }
+
+    await pool.query(
+      'UPDATE users SET name = $1, updated_at = NOW() WHERE id = $2',
+      [name, authUser.id],
+    );
+
+    sendJson(res, 200, { success: true, name });
+  } catch (error) {
+    handleServerError(res, error);
+  }
+}
+
+async function handleCreateOrder(req, res) {
+  try {
+    const authUser = await getAuthenticatedUser(req, res);
+    if (!authUser) return;
+
+    const payload = await readJsonBody(req);
+    const order = payload?.order;
+
+    if (!order || typeof order !== 'object' || Array.isArray(order) || !Object.keys(order).length) {
+      sendJson(res, 400, { message: 'Некорректные данные заказа.' });
+      return;
+    }
+
+    await pool.query('INSERT INTO order_history (user_id, order_data) VALUES ($1, $2::jsonb)', [
+      authUser.id,
+      JSON.stringify(order),
+    ]);
+
+    sendJson(res, 200, { success: true });
+  } catch (error) {
+    handleServerError(res, error);
+  }
+}
+
+async function handleGetOrders(req, res) {
+  try {
+    const authUser = await getAuthenticatedUser(req, res);
+    if (!authUser) return;
+
+    const ordersResult = await pool.query(
+      `
+        SELECT id, order_data, created_at
+        FROM order_history
+        WHERE user_id = $1
+        ORDER BY created_at DESC
+      `,
+      [authUser.id],
+    );
+
+    sendJson(res, 200, ordersResult.rows);
   } catch (error) {
     handleServerError(res, error);
   }
@@ -209,7 +508,7 @@ function sanitizeEmail(value) {
 
 function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
 }
@@ -243,6 +542,33 @@ function getSession(token) {
   return session;
 }
 
+async function getAuthenticatedUser(req, res, options = {}) {
+  const token = extractToken(req.headers['authorization']);
+  if (!token) {
+    sendJson(res, 401, { message: 'Требуется аутентификация.' });
+    return null;
+  }
+
+  const session = getSession(token);
+  if (!session) {
+    sendJson(res, 401, { message: 'Сессия недействительна или устарела.' });
+    return null;
+  }
+
+  const fields = options.includeSensitive
+    ? '*'
+    : 'id, email, name, email_verified';
+  const userResult = await pool.query(`SELECT ${fields} FROM users WHERE id = $1`, [session.userId]);
+
+  if (userResult.rowCount === 0) {
+    sessions.delete(token);
+    sendJson(res, 401, { message: 'Пользователь не найден.' });
+    return null;
+  }
+
+  return userResult.rows[0];
+}
+
 function extractToken(headerValue) {
   if (typeof headerValue !== 'string') return null;
   const parts = headerValue.split(' ');
@@ -254,4 +580,79 @@ function extractToken(headerValue) {
 
 function isClientError(error) {
   return error instanceof Error && /Невалидный JSON/.test(error.message);
+}
+
+function minutesToMs(value) {
+  return Number(value) * 60 * 1000;
+}
+
+async function verifyRecaptcha(token) {
+  if (!recaptchaSecret) {
+    return true;
+  }
+  if (!token) {
+    return false;
+  }
+
+  try {
+    const response = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        secret: recaptchaSecret,
+        response: token,
+      }),
+    });
+
+    const data = await response.json();
+    return Boolean(data.success);
+  } catch (error) {
+    console.error('reCAPTCHA verification failed:', error);
+    return false;
+  }
+}
+
+async function sendEmailVerification(to, token, ttlMin) {
+  const text = `Здравствуйте!\n\nВаш код подтверждения: ${token}\nОн действителен ${ttlMin} минут.\n\nЕсли вы не запрашивали подтверждение — просто игнорируйте это письмо.`;
+  await sendMail(to, 'Подтверждение email', text);
+}
+
+async function sendPasswordReset(to, link, ttlMin) {
+  const text = `Здравствуйте!\n\nМы получили запрос на сброс пароля. Перейдите по ссылке и задайте новый пароль (ссылка активна ${ttlMin} минут):\n${link}\n\nЕсли вы не запрашивали сброс, просто проигнорируйте это письмо.`;
+  await sendMail(to, 'Сброс пароля', text);
+}
+
+async function sendMail(to, subject, text) {
+  if (!mailer) {
+    console.warn('SMTP не настроен. Письмо не отправлено.');
+    return;
+  }
+
+  await mailer.sendMail({
+    from: smtpConfig.from,
+    to,
+    subject,
+    text,
+  });
+}
+
+function buildAuthResponse(user, token) {
+  return {
+    id: String(user.id),
+    email: user.email,
+    name: user.name ?? null,
+    email_verified: Boolean(user.email_verified),
+    ...(token ? { token } : {}),
+  };
+}
+
+function isThrottled(map, key) {
+  const last = map.get(key) ?? 0;
+  if (Date.now() - last < throttleWindowMs) {
+    return true;
+  }
+  map.set(key, Date.now());
+  return false;
 }

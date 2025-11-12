@@ -31,6 +31,22 @@
     </nav>
 
     <section v-if="activeTab === 'profile'" class="account__section" role="tabpanel">
+      <div v-if="authStore.needsEmailVerification" class="account__notice">
+        <div>
+          <h3>Подтвердите email</h3>
+          <p>Мы отправим код подтверждения на {{ userProfile?.email }}.</p>
+        </div>
+        <div class="account__notice-actions">
+          <button type="button" @click="sendVerifyCode" :disabled="isSendingVerify">
+            {{ isSendingVerify ? 'Отправляем…' : 'Выслать код' }}
+          </button>
+          <input v-model="verifyToken" type="text" placeholder="Код из письма" />
+          <button type="button" class="account__notice-confirm" @click="confirmVerify" :disabled="isVerifyingEmail">
+            Подтвердить
+          </button>
+        </div>
+        <p v-if="verifyMessage" class="account__notice-hint">{{ verifyMessage }}</p>
+      </div>
       <form class="account__form" @submit.prevent="submitProfile">
         <label>
           Имя
@@ -44,7 +60,14 @@
           Телефон
           <input v-model="profileDraft.phone" type="tel" autocomplete="tel" placeholder="+7" />
         </label>
-        <button type="submit" :disabled="userStore.isLoadingProfile">Сохранить</button>
+        <p v-if="profileError" class="account__form-error">{{ profileError }}</p>
+        <button
+          type="submit"
+          :disabled="userStore.isLoadingProfile || isSavingProfile || !isProfileDirty"
+          :class="['account__save', { 'account__save--dirty': isProfileDirty }]"
+        >
+          {{ isSavingProfile ? 'Сохраняем…' : 'Сохранить' }}
+        </button>
       </form>
     </section>
 
@@ -209,6 +232,9 @@ const profileDraft = reactive<UserProfile>({
   email: '',
   phone: '',
 });
+const baselineProfile = reactive<{ name: string; phone: string }>({ name: '', phone: '' });
+const profileError = ref('');
+const isSavingProfile = ref(false);
 
 const pendingAddressToken = ref<string | null>(null);
 const statusDictionary = {
@@ -220,6 +246,11 @@ const redeemAmount = ref(0);
 const pointsError = ref('');
 
 const userProfile = computed(() => userStore.profile);
+const isProfileDirty = computed(
+  () =>
+    profileDraft.name !== baselineProfile.name ||
+    profileDraft.phone !== baselineProfile.phone,
+);
 
 watch(
   () => userStore.profile,
@@ -229,15 +260,34 @@ watch(
     profileDraft.name = profile.name;
     profileDraft.email = profile.email;
     profileDraft.phone = profile.phone ?? '';
+    baselineProfile.name = profileDraft.name;
+    baselineProfile.phone = profileDraft.phone ?? '';
   },
   { immediate: true },
 );
 
 const submitProfile = async () => {
-  await userStore.updateProfile({
-    name: profileDraft.name,
-    phone: profileDraft.phone,
-  });
+  profileError.value = '';
+  const trimmedName = profileDraft.name.trim();
+  if (!trimmedName) {
+    profileError.value = 'Введите имя.';
+    return;
+  }
+
+  isSavingProfile.value = true;
+  try {
+    await userStore.updateName(trimmedName);
+    await userStore.updateProfile({ phone: profileDraft.phone });
+    profileDraft.name = trimmedName;
+    baselineProfile.name = trimmedName;
+    baselineProfile.phone = profileDraft.phone ?? '';
+    window.alert('Сохранено');
+  } catch (error) {
+    console.error('[Profile] failed to update', error);
+    profileError.value = error instanceof Error ? error.message : 'Не удалось сохранить.';
+  } finally {
+    isSavingProfile.value = false;
+  }
 };
 
 const refreshAll = async () => {
@@ -319,6 +369,51 @@ const redeemPoints = () => {
 const logout = async () => {
   await authStore.logout();
   router.push({ name: 'home' });
+};
+
+const verifyToken = ref('');
+const isSendingVerify = ref(false);
+const isVerifyingEmail = ref(false);
+const verifyMessage = ref('');
+
+const sendVerifyCode = async () => {
+  isSendingVerify.value = true;
+  verifyMessage.value = '';
+  try {
+    await authStore.sendVerifyCode();
+    verifyMessage.value = 'Код подтверждения отправлен на ваш email.';
+  } catch (error) {
+    console.error('[VerifyEmail] send code failed', error);
+    verifyMessage.value = error instanceof Error ? error.message : 'Не удалось отправить код.';
+  } finally {
+    isSendingVerify.value = false;
+  }
+};
+
+const confirmVerify = async () => {
+  if (!verifyToken.value.trim()) {
+    verifyMessage.value = 'Введите код из письма.';
+    return;
+  }
+  isVerifyingEmail.value = true;
+  verifyMessage.value = '';
+  try {
+    await authStore.verifyEmail(verifyToken.value.trim());
+    verifyToken.value = '';
+    verifyMessage.value = 'Email подтверждён!';
+    userStore.setProfileFromAuth({
+      id: userProfile.value?.id ?? '',
+      email: userProfile.value?.email ?? '',
+      name: userProfile.value?.name ?? null,
+      emailVerified: true,
+    });
+    authStore.patchUser({ emailVerified: true });
+  } catch (error) {
+    console.error('[VerifyEmail] failed', error);
+    verifyMessage.value = error instanceof Error ? error.message : 'Код неверен или устарел.';
+  } finally {
+    isVerifyingEmail.value = false;
+  }
 };
 
 onMounted(() => {
@@ -412,6 +507,50 @@ watch(activeTab, (next) => {
   box-shadow: var(--shadow-sm);
 }
 
+.account__notice {
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  background: rgba(255, 196, 0, 0.08);
+}
+
+.account__notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+
+  input {
+    flex: 1;
+    min-width: 160px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    padding: var(--space-2) var(--space-3);
+  }
+
+  button {
+    border-radius: var(--radius-md);
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    padding: var(--space-2) var(--space-4);
+    font-weight: 600;
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+  }
+}
+
+.account__notice-hint {
+  margin: 0;
+  font-size: var(--fz-caption);
+  color: var(--text-secondary);
+}
+
 .account__form {
   display: grid;
   gap: var(--space-4);
@@ -428,14 +567,34 @@ watch(activeTab, (next) => {
     padding: var(--space-2) var(--space-3);
   }
 
-  button {
+  button,
+  .account__save {
     justify-self: flex-start;
     border: none;
     border-radius: var(--radius-md);
     background: var(--accent);
     color: #fff;
     padding: var(--space-3) var(--space-5);
+    font-weight: 600;
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
   }
+}
+
+.account__form-error {
+  margin: 0;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: rgba(214, 69, 80, 0.1);
+  color: var(--danger);
+  font-size: var(--fz-caption);
+}
+
+.account__save--dirty {
+  box-shadow: 0 0 0 2px rgba(255, 102, 0, 0.3);
 }
 
 .addresses__actions {

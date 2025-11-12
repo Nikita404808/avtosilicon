@@ -12,6 +12,7 @@ import productsMock from '@/mocks/products.json';
 import { useCartStore } from './cart';
 
 const fallbackProducts = productsMock as unknown as Product[];
+const AUTH_API_BASE = import.meta.env.VITE_AUTH_API_BASE ?? 'http://31.31.207.27:3000';
 
 type UserState = {
   profile: UserProfile | null;
@@ -42,6 +43,17 @@ type AddressConfirmationPayload = {
 };
 
 const BANK_API_BASE = import.meta.env.VITE_BANK_API_BASE ?? '';
+type OrdersApiRow = {
+  id: string | number;
+  order_data: OrderSummary | null;
+  created_at: string;
+};
+
+type AuthApiSuccess = {
+  success: boolean;
+};
+
+type HttpError = Error & { status?: number };
 
 const createDefaultState = (): UserState => ({
   profile: null,
@@ -90,7 +102,7 @@ export const useUserStore = defineStore('user', {
     setAuthToken(token: string | null) {
       this.authToken = token;
     },
-    setProfileFromAuth(user: { id: string; email: string; name?: string } | null) {
+    setProfileFromAuth(user: { id: string; email: string; name?: string | null; emailVerified?: boolean } | null) {
       if (!user) {
         this.profile = null;
         return;
@@ -102,6 +114,7 @@ export const useUserStore = defineStore('user', {
         name: user.name ?? formatNameFromEmail(user.email),
         phone: this.profile?.phone,
         loyaltyPoints: this.profile?.loyaltyPoints ?? 0,
+        emailVerified: user.emailVerified ?? this.profile?.emailVerified ?? false,
       };
     },
     async fetchProfile() {
@@ -132,6 +145,22 @@ export const useUserStore = defineStore('user', {
       } finally {
         this.isLoadingProfile = false;
       }
+    },
+    async updateName(name: string) {
+      if (!this.authToken) throw new Error('Требуется авторизация');
+      const trimmed = name.trim();
+      if (!trimmed || trimmed.length > 100) {
+        throw new Error('Введите корректное имя.');
+      }
+      await requestAuthApi<AuthApiSuccess>('/api/users/me/name', this.authToken, {
+        method: 'PUT',
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (this.profile) {
+        this.profile.name = trimmed;
+      }
+      const { useAuthStore } = await import('./auth');
+      useAuthStore().patchUser({ name: trimmed });
     },
     async fetchAddresses() {
       if (!this.authToken) return;
@@ -237,12 +266,10 @@ export const useUserStore = defineStore('user', {
       if (!this.authToken) return;
       this.isLoadingOrders = true;
       try {
-        const orders = await requestBankApi<OrderSummary[]>('/users/me/orders', {
-          headers: { Authorization: `Bearer ${this.authToken}` },
-        });
-        this.orderHistory = orders;
+        const orders = await requestAuthApi<OrdersApiRow[]>('/api/orders', this.authToken);
+        this.orderHistory = orders.map(normalizeOrderRow);
       } catch (error) {
-        logBankError(error);
+        logAuthError(error);
         if (!this.orderHistory.length) {
           const fallbackTotal: Money = { amount: 4011, currency: 'RUB' };
           this.orderHistory = [
@@ -262,6 +289,22 @@ export const useUserStore = defineStore('user', {
         }
       } finally {
         this.isLoadingOrders = false;
+      }
+    },
+    async createOrder(order: Record<string, unknown>) {
+      if (!this.authToken) return 'unauthorized' as const;
+      try {
+        await requestAuthApi<AuthApiSuccess>('/api/orders', this.authToken, {
+          method: 'POST',
+          body: JSON.stringify({ order }),
+        });
+        await this.fetchOrders();
+        return 'success' as const;
+      } catch (error) {
+        if (isHttpError(error) && (error.status === 401 || error.status === 403)) {
+          return 'unauthorized' as const;
+        }
+        throw error;
       }
     },
     async repeatOrder(payload: RepeatOrderPayload) {
@@ -328,6 +371,10 @@ function logBankError(error: unknown) {
   console.error('[Bank API]', error);
 }
 
+function logAuthError(error: unknown) {
+  console.error('[Auth API]', error);
+}
+
 function findProduct(productId: string) {
   return fallbackProducts.find((product) => product.id === productId);
 }
@@ -349,4 +396,55 @@ function buildFallbackOrderItems(items: { productId: string; quantity: number }[
 
 function formatNameFromEmail(email: string) {
   return email.split('@')[0] || email;
+}
+
+async function requestAuthApi<T>(path: string, token: string, options?: RequestInit): Promise<T> {
+  if (!AUTH_API_BASE) {
+    throw new Error('AUTH_API_BASE is not configured');
+  }
+  const response = await fetch(`${AUTH_API_BASE}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(options?.headers ?? {}),
+    },
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw createHttpError(response.status, message || 'Auth API request failed');
+  }
+
+  if (response.status === 204) {
+    return {} as T;
+  }
+
+  return response.json() as Promise<T>;
+}
+
+function createHttpError(status: number, message: string): HttpError {
+  const error = new Error(message) as HttpError;
+  error.status = status;
+  return error;
+}
+
+function isHttpError(error: unknown): error is HttpError {
+  return Boolean(error) && typeof error === 'object' && 'status' in (error as Record<string, unknown>);
+}
+
+function normalizeOrderRow(record: OrdersApiRow): OrderSummary {
+  const payload = record.order_data ?? {
+    id: record.id,
+    number: `ORDER-${record.id}`,
+    createdAt: record.created_at,
+    status: 'processing',
+    total: { amount: 0, currency: 'RUB' },
+    items: [],
+  };
+  return {
+    ...payload,
+    id: payload.id ?? String(record.id),
+    createdAt: payload.createdAt ?? record.created_at,
+  } as OrderSummary;
 }

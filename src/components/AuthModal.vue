@@ -22,25 +22,44 @@
             />
 
             <label for="password">Пароль</label>
-            <input
-              id="password"
-              v-model="password"
-              type="password"
-              autocomplete="current-password"
-              :disabled="isLoading"
-              required
-            />
+            <div class="modal__input-wrapper">
+              <input
+                id="password"
+                v-model="password"
+                :type="showPassword ? 'text' : 'password'"
+                autocomplete="current-password"
+                :disabled="isLoading"
+                required
+              />
+              <button
+                type="button"
+                class="modal__toggle"
+                @click="showPassword = !showPassword"
+                :aria-pressed="showPassword"
+              >
+                {{ showPassword ? '🙈' : '👁' }}
+              </button>
+            </div>
 
             <label v-if="mode === 'register'" for="password-confirm">Повторите пароль</label>
-            <input
-              v-if="mode === 'register'"
-              id="password-confirm"
-              v-model="confirmPassword"
-              type="password"
-              autocomplete="new-password"
-              :disabled="isLoading"
-              required
-            />
+            <div v-if="mode === 'register'" class="modal__input-wrapper">
+              <input
+                id="password-confirm"
+                v-model="confirmPassword"
+                :type="showConfirmPassword ? 'text' : 'password'"
+                autocomplete="new-password"
+                :disabled="isLoading"
+                required
+              />
+              <button
+                type="button"
+                class="modal__toggle"
+                @click="showConfirmPassword = !showConfirmPassword"
+                :aria-pressed="showConfirmPassword"
+              >
+                {{ showConfirmPassword ? '🙈' : '👁' }}
+              </button>
+            </div>
 
             <p v-if="errorMessage" class="modal__error">{{ errorMessage }}</p>
 
@@ -85,7 +104,10 @@
               autocomplete="email"
               required
             />
-            <button type="submit">Отправить ссылку</button>
+            <p v-if="resetMessage" class="modal__hint">{{ resetMessage }}</p>
+            <button type="submit" :disabled="isResetLoading">
+              {{ isResetLoading ? 'Отправляем…' : 'Отправить ссылку' }}
+            </button>
           </form>
         </div>
       </div>
@@ -95,11 +117,9 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 
 const authStore = useAuthStore();
-const router = useRouter();
 
 const email = ref('');
 const password = ref('');
@@ -111,6 +131,10 @@ const resetModalRef = ref<HTMLDivElement | null>(null);
 const mode = ref<'login' | 'register'>('login');
 const formError = ref('');
 const isLoading = ref(false);
+const showPassword = ref(false);
+const showConfirmPassword = ref(false);
+const resetMessage = ref('');
+const isResetLoading = ref(false);
 
 const errorMessage = computed(() => formError.value || authStore.authError);
 const primaryActionLabel = computed(() =>
@@ -154,18 +178,30 @@ const openReset = () => {
 const closeReset = () => {
   showResetModal.value = false;
   resetEmail.value = '';
+  resetMessage.value = '';
+  formError.value = '';
 };
 
 const submitReset = async () => {
   formError.value = '';
+  resetMessage.value = '';
+  if (!resetEmail.value) {
+    formError.value = 'Введите email.';
+    return;
+  }
+  isResetLoading.value = true;
   try {
-    const token = await authStore.requestPasswordReset(resetEmail.value);
-    closeReset();
-    authStore.toggleModal(false);
-    await router.push({ name: 'reset-password', query: { token } });
+    await authStore.requestPasswordReset(resetEmail.value);
+    resetMessage.value = 'Если такой email существует, мы отправили инструкцию по сбросу пароля.';
+    setTimeout(() => {
+      resetMessage.value = '';
+      closeReset();
+    }, 2000);
   } catch (error) {
     console.warn('[AuthModal:reset]', error);
     formError.value = authStore.authError ?? 'Не удалось создать ссылку восстановления.';
+  } finally {
+    isResetLoading.value = false;
   }
 };
 
@@ -269,6 +305,12 @@ watch(showResetModal, (isOpen) => {
     border-radius: var(--radius-md);
     border: 1px solid var(--border);
     padding: var(--space-2) var(--space-3);
+    outline: none;
+
+    &:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(255, 102, 0, 0.15);
+    }
   }
 
   button {
@@ -296,6 +338,12 @@ watch(showResetModal, (isOpen) => {
   font-size: var(--fz-caption);
 }
 
+.modal__hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--fz-caption);
+}
+
 .modal__link {
   background: none !important;
   color: var(--accent);
@@ -317,6 +365,22 @@ watch(showResetModal, (isOpen) => {
 
 .modal__link--switch {
   margin-top: 0;
+}
+
+.modal__input-wrapper {
+  position: relative;
+}
+
+.modal__toggle {
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
 }
 
 .modal-enter-from,

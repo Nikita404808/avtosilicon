@@ -43,6 +43,18 @@ const routes = [
         meta: { title: 'Личный кабинет — АВТОСИЛИКОН' },
     },
     {
+        path: '/auth',
+        name: 'register_or_login',
+        component: () => import('@/pages/AuthRedirectPage.vue'),
+        meta: { title: 'Вход или регистрация — АВТОСИЛИКОН' },
+    },
+    {
+        path: '/cart/checkout',
+        name: 'cart-checkout',
+        component: () => import('@/pages/CartCheckoutPage.vue'),
+        meta: { title: 'Оформление заказа — АВТОСИЛИКОН' },
+    },
+    {
         path: '/reset-password',
         name: 'reset-password',
         component: () => import('@/pages/ResetPasswordPage.vue'),

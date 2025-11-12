@@ -8,14 +8,9 @@
         <RouterLink to="/" class="reset__link">На главную</RouterLink>
       </template>
 
-      <template v-else-if="!tokenEntry">
-        <p>Ссылка для восстановления устарела или недействительна.</p>
-        <RouterLink to="/" class="reset__link">Запросить новую ссылку</RouterLink>
-      </template>
-
       <form v-else class="reset__form" @submit.prevent="submit">
         <p class="reset__info">
-          Сбрасываем пароль для аккаунта <strong>{{ tokenEntry.email }}</strong>
+          Введите новый пароль для аккаунта, к которому принадлежит ссылка.
         </p>
         <label>
           Новый пароль
@@ -26,14 +21,17 @@
           <input v-model="confirmPassword" type="password" autocomplete="new-password" required />
         </label>
         <p v-if="errorMessage" class="reset__error">{{ errorMessage }}</p>
-        <button type="submit" :disabled="isLoading">Установить пароль</button>
+        <p v-if="successMessage" class="reset__info reset__info--success">{{ successMessage }}</p>
+        <button type="submit" :disabled="isLoading">
+          {{ isLoading ? 'Обновляем…' : 'Установить пароль' }}
+        </button>
       </form>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watchEffect } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 
@@ -42,22 +40,17 @@ const router = useRouter();
 const authStore = useAuthStore();
 
 const token = computed(() => (typeof route.query.token === 'string' ? route.query.token : ''));
-const tokenEntry = ref<ReturnType<typeof authStore.validateResetToken>>(null);
 const newPassword = ref('');
 const confirmPassword = ref('');
 const errorMessage = ref('');
 const isLoading = ref(false);
-
-watchEffect(() => {
-  if (!token.value) {
-    tokenEntry.value = null;
-    return;
-  }
-  tokenEntry.value = authStore.validateResetToken(token.value);
-});
+const successMessage = ref('');
 
 const submit = async () => {
-  if (!token.value || !tokenEntry.value) return;
+  if (!token.value) {
+    errorMessage.value = 'Токен отсутствует.';
+    return;
+  }
   if (newPassword.value !== confirmPassword.value) {
     errorMessage.value = 'Пароли не совпадают.';
     return;
@@ -70,11 +63,11 @@ const submit = async () => {
   errorMessage.value = '';
   isLoading.value = true;
   try {
-    await authStore.resetPasswordWithToken({
-      token: token.value,
-      newPassword: newPassword.value,
-    });
-    await router.replace({ name: 'account' });
+    await authStore.resetPassword({ token: token.value, newPassword: newPassword.value });
+    successMessage.value = 'Пароль обновлён. Теперь можно войти.';
+    authStore.setPostAuthRedirect('/account');
+    authStore.toggleModal(true);
+    await router.push({ name: 'register_or_login', query: { redirect: '/account' } });
   } catch (error) {
     console.error('[ResetPassword]', error);
     errorMessage.value = authStore.authError ?? 'Не удалось обновить пароль.';
@@ -115,6 +108,12 @@ const submit = async () => {
     border-radius: var(--radius-md);
     border: 1px solid var(--border);
     padding: var(--space-2) var(--space-3);
+    outline: none;
+
+    &:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(255, 102, 0, 0.15);
+    }
   }
 
   button {
@@ -136,6 +135,11 @@ const submit = async () => {
 .reset__info {
   margin: 0;
   color: var(--text-secondary);
+}
+
+.reset__info--success {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .reset__error {

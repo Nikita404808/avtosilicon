@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import productsMock from '@/mocks/products.json';
 import { useCartStore } from './cart';
 const fallbackProducts = productsMock;
+const AUTH_API_BASE = import.meta.env.VITE_AUTH_API_BASE ?? 'http://31.31.207.27:3000';
 const BANK_API_BASE = import.meta.env.VITE_BANK_API_BASE ?? '';
 const createDefaultState = () => ({
     profile: null,
@@ -56,6 +57,7 @@ export const useUserStore = defineStore('user', {
                 name: user.name ?? formatNameFromEmail(user.email),
                 phone: this.profile?.phone,
                 loyaltyPoints: this.profile?.loyaltyPoints ?? 0,
+                emailVerified: user.emailVerified ?? this.profile?.emailVerified ?? false,
             };
         },
         async fetchProfile() {
@@ -91,6 +93,23 @@ export const useUserStore = defineStore('user', {
             finally {
                 this.isLoadingProfile = false;
             }
+        },
+        async updateName(name) {
+            if (!this.authToken)
+                throw new Error('Требуется авторизация');
+            const trimmed = name.trim();
+            if (!trimmed || trimmed.length > 100) {
+                throw new Error('Введите корректное имя.');
+            }
+            await requestAuthApi('/api/users/me/name', this.authToken, {
+                method: 'PUT',
+                body: JSON.stringify({ name: trimmed }),
+            });
+            if (this.profile) {
+                this.profile.name = trimmed;
+            }
+            const { useAuthStore } = await import('./auth');
+            useAuthStore().patchUser({ name: trimmed });
         },
         async fetchAddresses() {
             if (!this.authToken)
@@ -205,13 +224,11 @@ export const useUserStore = defineStore('user', {
                 return;
             this.isLoadingOrders = true;
             try {
-                const orders = await requestBankApi('/users/me/orders', {
-                    headers: { Authorization: `Bearer ${this.authToken}` },
-                });
-                this.orderHistory = orders;
+                const orders = await requestAuthApi('/api/orders', this.authToken);
+                this.orderHistory = orders.map(normalizeOrderRow);
             }
             catch (error) {
-                logBankError(error);
+                logAuthError(error);
                 if (!this.orderHistory.length) {
                     const fallbackTotal = { amount: 4011, currency: 'RUB' };
                     this.orderHistory = [
@@ -232,6 +249,24 @@ export const useUserStore = defineStore('user', {
             }
             finally {
                 this.isLoadingOrders = false;
+            }
+        },
+        async createOrder(order) {
+            if (!this.authToken)
+                return 'unauthorized';
+            try {
+                await requestAuthApi('/api/orders', this.authToken, {
+                    method: 'POST',
+                    body: JSON.stringify({ order }),
+                });
+                await this.fetchOrders();
+                return 'success';
+            }
+            catch (error) {
+                if (isHttpError(error) && (error.status === 401 || error.status === 403)) {
+                    return 'unauthorized';
+                }
+                throw error;
             }
         },
         async repeatOrder(payload) {
@@ -299,6 +334,9 @@ export const useUserStore = defineStore('user', {
 function logBankError(error) {
     console.error('[Bank API]', error);
 }
+function logAuthError(error) {
+    console.error('[Auth API]', error);
+}
 function findProduct(productId) {
     return fallbackProducts.find((product) => product.id === productId);
 }
@@ -319,4 +357,48 @@ function buildFallbackOrderItems(items) {
 }
 function formatNameFromEmail(email) {
     return email.split('@')[0] || email;
+}
+async function requestAuthApi(path, token, options) {
+    if (!AUTH_API_BASE) {
+        throw new Error('AUTH_API_BASE is not configured');
+    }
+    const response = await fetch(`${AUTH_API_BASE}${path}`, {
+        ...options,
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            ...(options?.headers ?? {}),
+        },
+    });
+    if (!response.ok) {
+        const message = await response.text();
+        throw createHttpError(response.status, message || 'Auth API request failed');
+    }
+    if (response.status === 204) {
+        return {};
+    }
+    return response.json();
+}
+function createHttpError(status, message) {
+    const error = new Error(message);
+    error.status = status;
+    return error;
+}
+function isHttpError(error) {
+    return Boolean(error) && typeof error === 'object' && 'status' in error;
+}
+function normalizeOrderRow(record) {
+    const payload = record.order_data ?? {
+        id: record.id,
+        number: `ORDER-${record.id}`,
+        createdAt: record.created_at,
+        status: 'processing',
+        total: { amount: 0, currency: 'RUB' },
+        items: [],
+    };
+    return {
+        ...payload,
+        id: payload.id ?? String(record.id),
+        createdAt: payload.createdAt ?? record.created_at,
+    };
 }

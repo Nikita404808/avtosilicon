@@ -42,6 +42,7 @@ export type UserProfile = {
   email: string;
   phone?: string;
   loyaltyPoints?: number;
+  emailVerified?: boolean;
 };
 
 export type AddressReference = {
