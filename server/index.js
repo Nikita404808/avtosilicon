@@ -24,7 +24,6 @@ const emailVerifyTtlMin = Number(process.env.EMAIL_VERIFY_TTL_MIN ?? 15);
 const passwordResetTtlMin = Number(process.env.PASSWORD_RESET_TTL_MIN ?? 30);
 const emailVerifyTtlMs = minutesToMs(emailVerifyTtlMin);
 const passwordResetTtlMs = minutesToMs(passwordResetTtlMin);
-const recaptchaSecret = process.env.RECAPTCHA_SECRET ?? '';
 const throttleWindowMs = 60 * 1000;
 
 const smtpConfig = {
@@ -145,7 +144,6 @@ async function handleRegister(req, res) {
     const payload = await readJsonBody(req);
     const email = sanitizeEmail(payload.email);
     const password = typeof payload.password === 'string' ? payload.password.trim() : '';
-    const recaptchaToken = typeof payload.recaptchaToken === 'string' ? payload.recaptchaToken : '';
 
     if (!email || !password) {
       sendJson(res, 400, { message: 'Email и пароль обязательны.' });
@@ -154,12 +152,6 @@ async function handleRegister(req, res) {
 
     if (password.length < 6) {
       sendJson(res, 400, { message: 'Пароль должен содержать не менее 6 символов.' });
-      return;
-    }
-
-    const captchaPassed = await verifyRecaptcha(recaptchaToken);
-    if (!captchaPassed) {
-      sendJson(res, 400, { error: 'captcha_failed' });
       return;
     }
 
@@ -586,34 +578,6 @@ function isClientError(error) {
 
 function minutesToMs(value) {
   return Number(value) * 60 * 1000;
-}
-
-async function verifyRecaptcha(token) {
-  if (!recaptchaSecret) {
-    return true;
-  }
-  if (!token) {
-    return false;
-  }
-
-  try {
-    const response = await fetch('https://www.google.com/recaptcha/api/siteverify', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        secret: recaptchaSecret,
-        response: token,
-      }),
-    });
-
-    const data = await response.json();
-    return Boolean(data.success);
-  } catch (error) {
-    console.error('reCAPTCHA verification failed:', error);
-    return false;
-  }
 }
 
 async function sendEmailVerification(to, token, ttlMin) {
