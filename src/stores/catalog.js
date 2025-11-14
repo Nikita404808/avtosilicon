@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia';
+import { fetchProducts as fetchDirectusProducts } from '@/api/directus';
 const defaultState = () => ({
     products: [],
     filters: {
@@ -8,6 +9,7 @@ const defaultState = () => ({
     total: 0,
     pageSize: 12,
     isLoading: false,
+    hasLoaded: false,
 });
 export const useCatalogStore = defineStore('catalog', {
     state: defaultState,
@@ -35,8 +37,28 @@ export const useCatalogStore = defineStore('catalog', {
         setLoading(isLoading) {
             this.isLoading = isLoading;
         },
+        setLoaded(isLoaded) {
+            this.hasLoaded = isLoaded;
+        },
         reset() {
             Object.assign(this, defaultState());
+        },
+        async fetchProducts(force = false) {
+            if (this.hasLoaded && !force) {
+                return;
+            }
+            this.setLoading(true);
+            try {
+                const products = await fetchDirectusProducts();
+                this.setProducts(products);
+            }
+            catch (error) {
+                console.error('[CatalogStore] Failed to load products', error);
+            }
+            finally {
+                this.setLoading(false);
+                this.setLoaded(true);
+            }
         },
     },
 });

@@ -25,20 +25,27 @@ const props = defineProps<{
 
 const placeholderImage = '/placeholder/product.svg';
 const cartStore = useCartStore();
+const currencyFormatter = new Intl.NumberFormat('ru-RU', {
+  style: 'currency',
+  currency: 'RUB',
+  maximumFractionDigits: 0,
+});
 
-const formattedPrice = computed(() =>
-  props.product.price.amount.toLocaleString('ru-RU', {
-    style: 'currency',
-    currency: props.product.price.currency,
-    maximumFractionDigits: 0,
-  }),
-);
+const formattedPrice = computed(() => {
+  if (typeof props.product.price === 'number') {
+    return currencyFormatter.format(props.product.price);
+  }
+  return 'Цена по запросу';
+});
 
 const addToCart = () => {
   cartStore.addItem({
-    productId: props.product.id,
+    productId: String(props.product.id),
     quantity: 1,
-    price: props.product.price,
+    price: {
+      amount: props.product.price ?? 0,
+      currency: 'RUB',
+    },
   });
   cartStore.toggleCart(true);
 };

@@ -50,6 +50,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
+import { storeToRefs } from 'pinia';
 import { useRoute, useRouter } from 'vue-router';
 import CatalogFilters from '@/components/catalog/CatalogFilters.vue';
 import ProductGrid from '@/components/catalog/ProductGrid.vue';
@@ -57,14 +58,16 @@ import Pagination from '@/components/catalog/Pagination.vue';
 import type { FilterState, Product } from '@/types';
 import type { MakeItem } from '@/components/catalog/MakeModelTree.vue';
 import type { CategoryItem } from '@/components/catalog/CategoryList.vue';
-import productsMock from '@/mocks/products.json';
 import categoriesMock from '@/mocks/categories.json';
 import makeModelMock from '@/mocks/makes-models.json';
+import { useCatalogStore } from '@/stores/catalog';
 
 const route = useRoute();
 const router = useRouter();
 
-const allProducts = ref(productsMock as Product[]);
+const catalogStore = useCatalogStore();
+const { products: catalogProducts, isLoading: catalogIsLoading } = storeToRefs(catalogStore);
+const allProducts = computed(() => catalogProducts.value);
 const categoryOptions = ref(categoriesMock as CategoryItem[]);
 const makeModelData = ref(makeModelMock as MakeItem[]);
 const products = ref<Product[]>([]);
@@ -78,7 +81,8 @@ const filters = ref<FilterState>({
 });
 const catalogSearch = ref(filters.value.q ?? '');
 const pageSize = 12;
-const isLoading = ref(false);
+const isFiltering = ref(false);
+const isLoading = computed(() => catalogIsLoading.value || isFiltering.value);
 const filtersOpen = ref(true);
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
@@ -128,22 +132,28 @@ const syncToRoute = () => {
 };
 
 const applyFilters = () => {
-  isLoading.value = true;
+  isFiltering.value = true;
   window.requestAnimationFrame(() => {
     const startIndex = ((filters.value.page ?? 1) - 1) * pageSize;
     const filtered = allProducts.value.filter((product) => {
-      const matchesQuery = filters.value.q
-        ? product.title.toLowerCase().includes(filters.value.q.toLowerCase())
-        : true;
+      const matchesQuery = (() => {
+        if (!filters.value.q) return true;
+        const query = filters.value.q.toLowerCase();
+        const tokens = [product.name, product.sku].map((value) => value?.toLowerCase() ?? '');
+        return tokens.some((token) => token.includes(query));
+      })();
       const matchesMake = (() => {
         if (!filters.value.make) return true;
         const tokens = makeKeywordMap.value.get(filters.value.make) ?? [];
         if (!tokens.length) return true;
-        const compatibility = product.compatibility.map((item) => item.toLowerCase());
-        return tokens.some((token) => compatibility.some((entry) => entry.includes(token)));
+        const candidates = [product.carBrand, product.brand]
+          .map((value) => value?.toLowerCase())
+          .filter(Boolean) as string[];
+        if (!candidates.length) return false;
+        return tokens.some((token) => candidates.some((entry) => entry.includes(token)));
       })();
       const matchesModel = filters.value.model
-        ? product.compatibility.some((item) => item.toLowerCase().includes(filters.value.model!.toLowerCase()))
+        ? (product.carModel ?? '').toLowerCase().includes(filters.value.model!.toLowerCase())
         : true;
       const matchesCategory =
         filters.value.categories && filters.value.categories.length
@@ -154,7 +164,7 @@ const applyFilters = () => {
 
     total.value = filtered.length;
     products.value = filtered.slice(startIndex, startIndex + pageSize);
-    isLoading.value = false;
+    isFiltering.value = false;
   });
 };
 
@@ -203,8 +213,17 @@ watch(
   { deep: true },
 );
 
+watch(
+  catalogProducts,
+  () => {
+    applyFilters();
+  },
+  { immediate: true },
+);
+
 onMounted(() => {
   filtersOpen.value = window.innerWidth >= 992;
+  catalogStore.fetchProducts();
 });
 </script>
 

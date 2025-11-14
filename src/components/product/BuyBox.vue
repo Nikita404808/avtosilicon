@@ -33,6 +33,11 @@ const props = defineProps<{
 
 const quantity = ref(1);
 const cartStore = useCartStore();
+const currencyFormatter = new Intl.NumberFormat('ru-RU', {
+  style: 'currency',
+  currency: 'RUB',
+  maximumFractionDigits: 0,
+});
 
 watch(
   () => props.product.id,
@@ -41,13 +46,12 @@ watch(
   },
 );
 
-const formattedPrice = computed(() =>
-  props.product.price.amount.toLocaleString('ru-RU', {
-    style: 'currency',
-    currency: props.product.price.currency,
-    maximumFractionDigits: 0,
-  }),
-);
+const formattedPrice = computed(() => {
+  if (typeof props.product.price === 'number') {
+    return currencyFormatter.format(props.product.price);
+  }
+  return 'Цена по запросу';
+});
 
 const increment = () => {
   quantity.value += 1;
@@ -59,9 +63,12 @@ const decrement = () => {
 
 const addToCart = () => {
   cartStore.addItem({
-    productId: props.product.id,
+    productId: String(props.product.id),
     quantity: quantity.value,
-    price: props.product.price,
+    price: {
+      amount: props.product.price ?? 0,
+      currency: 'RUB',
+    },
   });
   cartStore.toggleCart(true);
 };

@@ -26,6 +26,10 @@
       :products="related"
     />
   </div>
+  <div v-else-if="!catalogLoaded" class="product__loading container">
+    <h1>Загрузка товара...</h1>
+    <p>Подождите, мы получаем данные из каталога.</p>
+  </div>
   <div v-else class="product__notfound container">
     <h1>Товар не найден</h1>
     <RouterLink to="/catalog">Вернуться в каталог</RouterLink>
@@ -33,10 +37,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted } from 'vue';
 import { useRoute, RouterLink } from 'vue-router';
-import productsMock from '@/mocks/products.json';
-import type { Product } from '@/types';
+import { storeToRefs } from 'pinia';
+import { useCatalogStore } from '@/stores/catalog';
 import Gallery from '@/components/product/Gallery.vue';
 import BuyBox from '@/components/product/BuyBox.vue';
 import SpecsTable from '@/components/product/SpecsTable.vue';
@@ -45,24 +49,35 @@ import RelatedGrid from '@/components/product/RelatedGrid.vue';
 import MayFitBlock from '@/components/product/MayFitBlock.vue';
 
 const route = useRoute();
-const allProducts = productsMock as Product[];
+const catalogStore = useCatalogStore();
+const { products: catalogProducts, hasLoaded: catalogLoaded } = storeToRefs(catalogStore);
+const slug = computed(() => route.params.slug as string);
 
-const product = computed(() =>
-  allProducts.find((item) => item.slug === (route.params.slug as string)),
-);
+const product = computed(() => catalogProducts.value.find((item) => item.slug === slug.value));
 
 const related = computed(() => {
   if (!product.value) return [];
-  return allProducts
-    .filter(
-      (item) =>
-        item.id !== product.value?.id &&
-        item.categories.some((category) => product.value?.categories.includes(category)),
-    )
+  const { brand, carBrand, categories } = product.value;
+  const hasAttributes = Boolean(brand || carBrand || (categories ?? []).length);
+  return catalogProducts.value
+    .filter((item) => item.id !== product.value?.id)
+    .filter((item) => {
+      if (!hasAttributes) return true;
+      if (brand && item.brand === brand) return true;
+      if (carBrand && item.carBrand === carBrand) return true;
+      if (categories?.length) {
+        return item.categories.some((category) => categories.includes(category));
+      }
+      return false;
+    })
     .slice(0, 4);
 });
 
 const mayFit = computed(() => product.value?.compatibility.slice(0, 6) ?? []);
+
+onMounted(() => {
+  catalogStore.fetchProducts();
+});
 </script>
 
 <style scoped lang="scss">
@@ -106,5 +121,11 @@ const mayFit = computed(() => product.value?.compatibility.slice(0, 6) ?? []);
   padding: var(--space-8) 0;
   display: grid;
   gap: var(--space-4);
+}
+
+.product__loading {
+  padding: var(--space-8) 0;
+  display: grid;
+  gap: var(--space-3);
 }
 </style>

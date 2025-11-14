@@ -3,7 +3,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
-import nodemailer from 'nodemailer';
+import { sendVerificationEmail, sendPasswordResetEmail } from './mailersendClient.js';
 
 const requiredEnv = ['DATABASE_URL'];
 const missingEnv = requiredEnv.filter((key) => !process.env[key]);
@@ -19,32 +19,11 @@ const pool = new Pool({
 
 const PORT = Number(process.env.PORT) || 3000;
 const ALLOWED_ORIGIN = process.env.CORS_ORIGIN || 'http://31.31.207.27:5173';
-const appBaseUrl = process.env.APP_BASE_URL ?? 'http://31.31.207.27:5173';
 const emailVerifyTtlMin = Number(process.env.EMAIL_VERIFY_TTL_MIN ?? 15);
 const passwordResetTtlMin = Number(process.env.PASSWORD_RESET_TTL_MIN ?? 30);
 const emailVerifyTtlMs = minutesToMs(emailVerifyTtlMin);
 const passwordResetTtlMs = minutesToMs(passwordResetTtlMin);
 const throttleWindowMs = 60 * 1000;
-
-const smtpConfig = {
-  host: process.env.SMTP_HOST ?? '',
-  port: Number(process.env.SMTP_PORT ?? 587),
-  user: process.env.SMTP_USER,
-  pass: process.env.SMTP_PASS,
-  from: process.env.SMTP_FROM ?? 'CS20 Auth <no-reply@example.com>',
-};
-
-const mailer = smtpConfig.host
-  ? nodemailer.createTransport({
-      host: smtpConfig.host,
-      port: smtpConfig.port,
-      secure: smtpConfig.port === 465,
-      auth:
-        smtpConfig.user && smtpConfig.pass
-          ? { user: smtpConfig.user, pass: smtpConfig.pass }
-          : undefined,
-    })
-  : null;
 
 const sessions = new Map();
 const verifyThrottleMap = new Map();
@@ -265,7 +244,13 @@ async function handleSendVerifyCode(req, res) {
       [verifyToken, expiresAt.toISOString(), user.id],
     );
 
-    await sendEmailVerification(user.email, verifyToken, emailVerifyTtlMin);
+    try {
+      await sendVerificationEmail(user.email, verifyToken);
+    } catch (emailError) {
+      console.error('Не удалось отправить письмо MailerSend (verify):', emailError);
+      sendJson(res, 500, { message: 'Не удалось отправить письмо с кодом. Попробуйте позже.' });
+      return;
+    }
 
     sendJson(res, 200, { success: true });
   } catch (error) {
@@ -351,8 +336,13 @@ async function handleRequestPasswordReset(req, res) {
         [token, expiresAt.toISOString(), userResult.rows[0].id],
       );
 
-      const link = `${appBaseUrl.replace(/\/$/, '')}/reset-password?token=${token}`;
-      await sendPasswordReset(email, link, passwordResetTtlMin);
+      try {
+        await sendPasswordResetEmail(email, token);
+      } catch (emailError) {
+        console.error('Не удалось отправить письмо MailerSend (reset):', emailError);
+        sendJson(res, 500, { message: 'Не удалось отправить письмо для сброса пароля.' });
+        return;
+      }
     }
 
     sendJson(res, 200, { success: true });
@@ -578,30 +568,6 @@ function isClientError(error) {
 
 function minutesToMs(value) {
   return Number(value) * 60 * 1000;
-}
-
-async function sendEmailVerification(to, token, ttlMin) {
-  const text = `Здравствуйте!\n\nВаш код подтверждения: ${token}\nОн действителен ${ttlMin} минут.\n\nЕсли вы не запрашивали подтверждение — просто игнорируйте это письмо.`;
-  await sendMail(to, 'Подтверждение email', text);
-}
-
-async function sendPasswordReset(to, link, ttlMin) {
-  const text = `Здравствуйте!\n\nМы получили запрос на сброс пароля. Перейдите по ссылке и задайте новый пароль (ссылка активна ${ttlMin} минут):\n${link}\n\nЕсли вы не запрашивали сброс, просто проигнорируйте это письмо.`;
-  await sendMail(to, 'Сброс пароля', text);
-}
-
-async function sendMail(to, subject, text) {
-  if (!mailer) {
-    console.warn('SMTP не настроен. Письмо не отправлено.');
-    return;
-  }
-
-  await mailer.sendMail({
-    from: smtpConfig.from,
-    to,
-    subject,
-    text,
-  });
 }
 
 function buildAuthResponse(user, token) {

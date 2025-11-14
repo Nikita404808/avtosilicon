@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import productsMock from '@/mocks/products.json';
 import { useCartStore } from './cart';
-const fallbackProducts = productsMock;
+const fallbackProducts = productsMock.map(normalizeMockProduct);
 const AUTH_API_BASE = import.meta.env.VITE_AUTH_API_BASE ?? 'http://31.31.207.27:3000';
 const BANK_API_BASE = import.meta.env.VITE_BANK_API_BASE ?? '';
 const createDefaultState = () => ({
@@ -279,9 +279,9 @@ export const useUserStore = defineStore('user', {
                     const product = findProduct(line.productId);
                     if (product) {
                         cartStore.addItem({
-                            productId: product.id,
+                            productId: String(product.id),
                             quantity: line.quantity,
-                            price: product.price,
+                            price: toMoney(product.price),
                         });
                     }
                 });
@@ -338,7 +338,7 @@ function logAuthError(error) {
     console.error('[Auth API]', error);
 }
 function findProduct(productId) {
-    return fallbackProducts.find((product) => product.id === productId);
+    return fallbackProducts.find((product) => product.legacyId === productId || String(product.id) === productId);
 }
 function buildFallbackOrderItems(items) {
     return items
@@ -347,13 +347,75 @@ function buildFallbackOrderItems(items) {
         if (!product)
             return null;
         return {
-            productId: product.id,
+            productId: String(product.id),
             title: product.title,
             quantity: line.quantity,
-            price: product.price,
+            price: toMoney(product.price),
         };
     })
         .filter(Boolean);
+}
+function toMoney(amount) {
+    if (typeof amount === 'number' && Number.isFinite(amount)) {
+        return { amount, currency: 'RUB' };
+    }
+    return { amount: 0, currency: 'RUB' };
+}
+function normalizeMockProduct(raw, index) {
+    const rawId = raw.id;
+    const legacyId = typeof rawId === 'string' ? rawId : null;
+    const numericId = typeof rawId === 'number' ? rawId : index + 1;
+    const title = typeof raw.title === 'string'
+        ? raw.title
+        : typeof raw.name === 'string'
+            ? raw.name
+            : `Товар ${index + 1}`;
+    const images = Array.isArray(raw.images)
+        ? raw.images.filter((item) => typeof item === 'string')
+        : [];
+    const priceValue = typeof raw.price === 'object' && raw.price !== null && 'amount' in raw.price
+        ? Number(raw.price.amount)
+        : typeof raw.price === 'number'
+            ? raw.price
+            : null;
+    return {
+        id: numericId,
+        legacyId,
+        slug: typeof raw.slug === 'string' ? raw.slug : `${numericId}`,
+        name: title,
+        title,
+        sku: typeof raw.sku === 'string' ? raw.sku : null,
+        price: typeof priceValue === 'number' && Number.isFinite(priceValue) ? priceValue : null,
+        brand: typeof raw.brand === 'string' ? raw.brand : null,
+        carBrand: typeof raw.carBrand === 'string' ? raw.carBrand : null,
+        carModel: typeof raw.carModel === 'string' ? raw.carModel : null,
+        description: typeof raw.description === 'string' ? raw.description : null,
+        descriptionHtml: typeof raw.descriptionHtml === 'string' ? raw.descriptionHtml : '',
+        image: images[0] ?? null,
+        images,
+        innerDiameter: typeof raw.innerDiameter === 'number'
+            ? raw.innerDiameter
+            : typeof raw.innerDiameter === 'string'
+                ? Number.parseFloat(raw.innerDiameter)
+                : null,
+        inStock: typeof raw.inStock === 'boolean' ? raw.inStock : true,
+        categories: Array.isArray(raw.categories)
+            ? raw.categories.filter((item) => typeof item === 'string')
+            : [],
+        compatibility: Array.isArray(raw.compatibility)
+            ? raw.compatibility.filter((item) => typeof item === 'string')
+            : [],
+        code: typeof raw.code === 'string' ? raw.code : null,
+        material: typeof raw.material === 'string' ? raw.material : null,
+        series: typeof raw.series === 'string' ? raw.series : null,
+        transportType: typeof raw.transportType === 'string' ? raw.transportType : null,
+        barcode: typeof raw.barcode === 'string' ? raw.barcode : null,
+        weightKg: typeof raw.weightKg === 'number'
+            ? raw.weightKg
+            : typeof raw.weightKg === 'string'
+                ? Number.parseFloat(raw.weightKg)
+                : null,
+    };
 }
 function formatNameFromEmail(email) {
     return email.split('@')[0] || email;
