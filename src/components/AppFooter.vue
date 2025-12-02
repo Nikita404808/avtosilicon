@@ -73,6 +73,7 @@ const currentYear = computed(() => new Date().getFullYear());
   background-color: var(--brand-primary);
   color: #fff;
   padding-top: var(--space-6);
+  text-align: center;
 }
 
 .footer__columns {
@@ -88,6 +89,7 @@ const currentYear = computed(() => new Date().getFullYear());
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  align-items: center;
 
   ul {
     display: flex;
@@ -132,6 +134,17 @@ const currentYear = computed(() => new Date().getFullYear());
 
   @media (max-width: $breakpoint-mobile) {
     text-align: center;
+  }
+}
+
+@media (max-width: 640px) {
+  .footer__columns {
+    grid-template-columns: 1fr;
+    gap: var(--space-4);
+  }
+
+  .footer__heading {
+    margin: 0;
   }
 }
 </style>

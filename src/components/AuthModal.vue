@@ -435,8 +435,6 @@ watch(showResetModal, (isOpen) => {
   align-items: center;
   gap: 0;
   width: 100%;
-  margin-left: -22px;
-  width: calc(100% - 6px);
 }
 
 .modal__inline-actions {
@@ -514,7 +512,7 @@ watch(showResetModal, (isOpen) => {
 
 .modal__input-wrapper .modal__toggle {
   position: absolute;
-  right: -16px;
+  right: var(--space-2);
   top: 50%;
   transform: translateY(-50%);
   width: 36px;
@@ -526,7 +524,7 @@ watch(showResetModal, (isOpen) => {
   flex: 1;
   width: 100%;
   padding-left: var(--space-3);
-  padding-right: calc(28px + var(--space-2));
+  padding-right: calc(var(--space-3) + var(--space-2) + 36px);
   max-width: 100%;
 }
 

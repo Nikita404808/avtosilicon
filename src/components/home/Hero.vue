@@ -83,7 +83,8 @@ import heroPrimary from '/placeholder/img-hed/IMG_1153.PNG?url';
 }
 
 .hero__photo {
-  width: clamp(320px, 40vw, 560px);
+  width: min(100%, 480px);
+  max-width: 100%;
   aspect-ratio: 4 / 3;
   object-fit: cover;
   border-radius: var(--radius-lg);
@@ -102,10 +103,11 @@ import heroPrimary from '/placeholder/img-hed/IMG_1153.PNG?url';
   .hero__media {
     order: -1;
     min-height: 240px;
+    width: 100%;
   }
 
   .hero__photo {
-    width: min(100%, 420px);
+    width: min(100%, 360px);
   }
 
   .hero__content {
