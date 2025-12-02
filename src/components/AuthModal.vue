@@ -3,7 +3,7 @@
     <Transition name="modal">
       <div v-if="authStore.isAuthModalOpen" class="modal" role="dialog" aria-modal="true">
         <div class="modal__backdrop" @click="closeModal" />
-        <div class="modal__content" ref="modalRef" tabindex="-1">
+        <div class="modal__content page-content" ref="modalRef" tabindex="-1">
           <header class="modal__header">
             <h2>{{ mode === 'register' ? 'Регистрация' : 'Вход в личный кабинет' }}</h2>
             <button type="button" @click="closeModal" aria-label="Закрыть">
@@ -23,6 +23,14 @@
 
             <label for="password">Пароль</label>
             <div class="modal__input-wrapper">
+              <input
+                id="password"
+                v-model="password"
+                :type="showPassword ? 'text' : 'password'"
+                autocomplete="current-password"
+                :disabled="isLoading"
+                required
+              />
               <button
                 type="button"
                 class="modal__toggle"
@@ -41,18 +49,18 @@
                   />
                 </svg>
               </button>
-              <input
-                id="password"
-                v-model="password"
-                :type="showPassword ? 'text' : 'password'"
-                autocomplete="current-password"
-                :disabled="isLoading"
-                required
-              />
             </div>
 
             <label v-if="mode === 'register'" for="password-confirm">Повторите пароль</label>
             <div v-if="mode === 'register'" class="modal__input-wrapper">
+              <input
+                id="password-confirm"
+                v-model="confirmPassword"
+                :type="showConfirmPassword ? 'text' : 'password'"
+                autocomplete="new-password"
+                :disabled="isLoading"
+                required
+              />
               <button
                 type="button"
                 class="modal__toggle"
@@ -71,14 +79,16 @@
                   />
                 </svg>
               </button>
-              <input
-                id="password-confirm"
-                v-model="confirmPassword"
-                :type="showConfirmPassword ? 'text' : 'password'"
-                autocomplete="new-password"
-                :disabled="isLoading"
-                required
-              />
+            </div>
+
+            <div v-if="mode === 'register'" class="modal__policy">
+              <label class="modal__checkbox">
+                <input type="checkbox" v-model="acceptedPolicy" />
+                <span>
+                  Принимаю
+                  <RouterLink to="/policy">Политику конфиденциальности</RouterLink>
+                </span>
+              </label>
             </div>
 
             <p v-if="errorMessage" class="modal__error">{{ errorMessage }}</p>
@@ -86,20 +96,33 @@
             <button type="submit" :disabled="isLoading">
               {{ primaryActionLabel }}
             </button>
+
+            <div v-if="mode === 'login'" class="modal__inline-actions">
+              <button type="button" class="modal__ghost-button" @click="openReset" :disabled="isLoading">
+                Забыли пароль?
+              </button>
+              <div class="modal__create-account">
+                <button
+                  type="button"
+                  class="modal__ghost-button modal__ghost-button--compact"
+                  @click="switchMode"
+                  :disabled="isLoading"
+                >
+                  Зарегистрироваться
+                </button>
+                <small>Нет аккаунта?</small>
+              </div>
+            </div>
+          </form>
+          <div v-if="mode === 'register'" class="modal__switch">
+            <span>Уже зарегистрированы?</span>
             <button
-              v-if="mode === 'login'"
               type="button"
-              class="modal__link"
-              @click="openReset"
+              class="modal__ghost-button modal__ghost-button--compact"
+              @click="switchMode"
               :disabled="isLoading"
             >
-              Забыли пароль?
-            </button>
-          </form>
-          <div class="modal__switch">
-            <span>{{ mode === 'login' ? 'Нет аккаунта?' : 'Уже зарегистрированы?' }}</span>
-            <button type="button" class="modal__link modal__link--switch" @click="switchMode">
-              {{ mode === 'login' ? 'Создать аккаунт' : 'Войти' }}
+              Войти
             </button>
           </div>
         </div>
@@ -108,7 +131,7 @@
     <Transition name="modal">
       <div v-if="showResetModal" class="modal" role="dialog" aria-modal="true">
         <div class="modal__backdrop" @click="closeReset" />
-        <div class="modal__content" ref="resetModalRef" tabindex="-1">
+        <div class="modal__content page-content" ref="resetModalRef" tabindex="-1">
           <header class="modal__header">
             <h2>Восстановление пароля</h2>
             <button type="button" @click="closeReset" aria-label="Закрыть">
@@ -137,6 +160,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { RouterLink } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 
 const authStore = useAuthStore();
@@ -148,13 +172,14 @@ const modalRef = ref<HTMLDivElement | null>(null);
 const showResetModal = ref(false);
 const resetEmail = ref('');
 const resetModalRef = ref<HTMLDivElement | null>(null);
-const mode = ref<'login' | 'register'>('login');
+const mode = ref<'login' | 'register'>(authStore.authModalMode ?? 'login');
 const formError = ref('');
 const isLoading = ref(false);
 const showPassword = ref(false);
 const showConfirmPassword = ref(false);
 const resetMessage = ref('');
 const isResetLoading = ref(false);
+const acceptedPolicy = ref(false);
 
 const errorMessage = computed(() => formError.value || authStore.authError);
 const primaryActionLabel = computed(() =>
@@ -172,6 +197,11 @@ const submit = async () => {
 
   if (mode.value === 'register' && password.value !== confirmPassword.value) {
     formError.value = 'Пароли не совпадают.';
+    return;
+  }
+
+  if (mode.value === 'register' && !acceptedPolicy.value) {
+    formError.value = 'Для регистрации необходимо принять политику конфиденциальности.';
     return;
   }
 
@@ -227,10 +257,12 @@ const submitReset = async () => {
 
 const switchMode = () => {
   mode.value = mode.value === 'login' ? 'register' : 'login';
+  authStore.setModalMode(mode.value);
   formError.value = '';
   authStore.setError(null);
   password.value = '';
   confirmPassword.value = '';
+  acceptedPolicy.value = false;
 };
 
 const closeModal = () => {
@@ -243,6 +275,7 @@ const resetForm = () => {
   confirmPassword.value = '';
   formError.value = '';
   authStore.setError(null);
+  acceptedPolicy.value = false;
 };
 
 watch(
@@ -250,14 +283,23 @@ watch(
   (isOpen) => {
     document.body.style.overflow = isOpen || showResetModal.value ? 'hidden' : '';
     if (isOpen) {
+      mode.value = authStore.authModalMode ?? 'login';
       requestAnimationFrame(() => {
         modalRef.value?.focus();
       });
     } else {
       showResetModal.value = false;
       mode.value = 'login';
+      authStore.setModalMode('login');
       resetForm();
     }
+  },
+);
+
+watch(
+  () => authStore.authModalMode,
+  (next) => {
+    mode.value = next ?? 'login';
   },
 );
 
@@ -289,7 +331,7 @@ watch(showResetModal, (isOpen) => {
 
 .modal__content {
   position: relative;
-  width: min(420px, 90vw);
+  width: min(480px, calc(100vw - 32px));
   background: var(--surface);
   border-radius: var(--radius-lg);
   padding: var(--space-6);
@@ -298,6 +340,7 @@ watch(showResetModal, (isOpen) => {
   flex-direction: column;
   gap: var(--space-4);
   outline: none;
+  margin-inline: auto;
 }
 
 .modal__header {
@@ -327,6 +370,7 @@ watch(showResetModal, (isOpen) => {
     padding: var(--space-2) var(--space-3);
     outline: none;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    min-height: 48px;
 
     &:focus {
       border-color: var(--accent);
@@ -334,7 +378,7 @@ watch(showResetModal, (isOpen) => {
     }
   }
 
-  > button:not(.modal__link) {
+  > button:not(.modal__ghost-button) {
     margin-top: var(--space-4);
     border-radius: var(--radius-md);
     border: none;
@@ -344,6 +388,7 @@ watch(showResetModal, (isOpen) => {
     font-weight: 600;
     outline: none;
     transition: box-shadow 0.15s ease, transform 0.02s ease;
+    min-height: 52px;
 
     &:disabled {
       opacity: 0.6;
@@ -371,45 +416,135 @@ watch(showResetModal, (isOpen) => {
   font-size: var(--fz-caption);
 }
 
-.modal__link {
-  background: none !important;
-  color: var(--accent);
-  padding: 0;
-  margin-top: var(--space-2);
-  text-decoration: underline;
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-}
-
 .modal__switch {
   display: flex;
-  gap: var(--space-2);
-  font-size: var(--fz-caption);
-}
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--space-3);
+  width: 100%;
 
-.modal__link--switch {
-  margin-top: 0;
+  span {
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
 }
 
 .modal__input-wrapper {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+  margin-left: -22px;
+  width: calc(100% - 6px);
+}
+
+.modal__inline-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  flex-wrap: nowrap;
+  margin-top: var(--space-2);
+  width: 100%;
+  padding-left: var(--space-2);
+
+  .modal__ghost-button {
+    margin-top: 0;
+  }
+}
+
+.modal__create-account {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.modal__create-account small {
+  display: block;
+  font-size: var(--fz-caption);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.modal__policy {
+  margin-top: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-left: 0;
+}
+
+.modal__checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fz-caption);
+  color: var(--text-secondary);
+  margin-left: -4px;
+
+  input {
+    margin-top: 0;
+    width: 18px;
+    height: 18px;
+    outline: none;
+    box-shadow: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    accent-color: var(--accent);
+
+    &:focus-visible,
+    &:focus {
+      outline: none;
+      box-shadow: none;
+      border-color: var(--border);
+    }
+  }
+
+  a {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+
+  span {
+    line-height: 1.4;
+  }
+}
+
+.modal__input-wrapper .modal__toggle {
+  position: absolute;
+  right: -16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
+
+.modal__input-wrapper input {
+  flex: 1;
+  width: 100%;
+  padding-left: var(--space-3);
+  padding-right: calc(28px + var(--space-2));
+  max-width: 100%;
+}
+
+@media (max-width: 480px) {
+  .modal__inline-actions {
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
 }
 
 .modal__toggle {
-  position: absolute;
-  top: 50%;
-  left: var(--space-2);
-  transform: translateY(-50%);
+  border: 1px solid var(--border);
   width: 36px;
   height: 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: none;
-  background: transparent;
+  background: rgba(0, 0, 0, 0.04);
   cursor: pointer;
   border-radius: var(--radius-sm);
   outline: none;
@@ -426,8 +561,29 @@ watch(showResetModal, (isOpen) => {
   }
 }
 
-.modal__input-wrapper input {
-  padding-left: calc(var(--space-3) + 40px);
+.modal__ghost-button {
+  align-self: flex-start;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  padding: var(--space-1) var(--space-2);
+  font-weight: 600;
+  margin-top: var(--space-2);
+  font-size: var(--fz-caption);
+
+  &--compact {
+    margin-top: 0;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  &:focus-visible {
+    box-shadow: 0 0 0 3px rgba(255, 102, 0, 0.25);
+  }
 }
 
 .modal-enter-from,
@@ -439,5 +595,25 @@ watch(showResetModal, (isOpen) => {
 .modal-enter-active,
 .modal-leave-active {
   transition: all 160ms ease;
+}
+
+@media (max-width: $breakpoint-tablet) {
+  .modal__content {
+    width: min(440px, calc(100vw - 48px));
+    padding: var(--space-5);
+  }
+}
+
+@media (max-width: $breakpoint-mobile) {
+  .modal {
+    align-items: flex-start;
+    padding: var(--space-4) var(--space-3);
+  }
+
+  .modal__content {
+    width: 100%;
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+  }
 }
 </style>

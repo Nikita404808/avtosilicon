@@ -41,6 +41,7 @@ const formattedPrice = computed(() => {
 const addToCart = () => {
   cartStore.addItem({
     productId: String(props.product.id),
+    title: props.product.title,
     quantity: 1,
     price: {
       amount: props.product.price ?? 0,
@@ -60,6 +61,7 @@ const addToCart = () => {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   padding: var(--space-4);
+  height: 100%;
 }
 
 .card__image {
@@ -100,10 +102,31 @@ const addToCart = () => {
   color: #fff;
   font-weight: 600;
   transition: filter 120ms ease;
+  min-height: 48px;
 
   &:hover,
   &:focus-visible {
     filter: brightness(1.05);
+  }
+}
+
+@media (max-width: 900px) {
+  .card {
+    padding: var(--space-3);
+  }
+
+  .card__price {
+    font-size: 18px;
+  }
+}
+
+@media (max-width: $breakpoint-mobile) {
+  .card {
+    border-radius: var(--radius-lg);
+  }
+
+  .card__title {
+    min-height: auto;
   }
 }
 </style>

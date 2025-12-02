@@ -2,7 +2,6 @@
   <section class="promo">
     <div class="container">
       <header class="promo__header">
-        <h2>О нашей продукции</h2>
         <div class="promo__tabs" role="tablist" aria-label="Материалы о продукции">
           <button
             v-for="tab in tabs"
@@ -18,30 +17,39 @@
         </div>
       </header>
 
-      <div class="promo__grid" role="tabpanel" tabindex="0">
-        <article v-for="card in activeCards" :key="card.title" class="promo__card">
-          <img v-if="card.image" :src="card.image" :alt="card.title" />
-          <h3>{{ card.title }}</h3>
-          <p>{{ card.description }}</p>
-          <RouterLink :to="card.href" class="promo__link">Читать</RouterLink>
-        </article>
+      <div class="promo__panel" role="tabpanel" tabindex="0">
+        <template v-if="isProductTab">
+          <div v-if="isLoading" class="promo__state">Загрузка новинок...</div>
+          <div v-else-if="hasError" class="promo__state promo__state--error">
+            {{ error }}
+          </div>
+          <div v-else-if="!newProducts.length" class="promo__state">Новинок пока нет.</div>
+          <div v-else class="promo__product-grid">
+            <ProductCard v-for="product in newProducts" :key="product.id" :product="product" />
+          </div>
+        </template>
+        <div v-else class="promo__grid">
+          <article v-for="card in activeCards" :key="card.title" class="promo__card">
+            <img v-if="card.image" :src="card.image" :alt="card.title" />
+            <h3>{{ card.title }}</h3>
+            <p v-if="card.description">{{ card.description }}</p>
+            <RouterLink :to="card.href" class="promo__link">Читать</RouterLink>
+          </article>
+        </div>
       </div>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
-import img1154 from '/placeholder/img-hed/IMG_1154.PNG?url';
-import img1155 from '/placeholder/img-hed/IMG_1155.PNG?url';
-import img1156 from '/placeholder/img-hed/IMG_1156.PNG?url';
-import img1157 from '/placeholder/img-hed/IMG_1157.PNG?url';
-import img1158 from '/placeholder/img-hed/IMG_1158.PNG?url';
-import img1159 from '/placeholder/img-hed/IMG_1159.PNG?url';
-import img1160 from '/placeholder/img-hed/IMG_1160.PNG?url';
-import img1161 from '/placeholder/img-hed/IMG_1161.PNG?url';
-import img1162 from '/placeholder/img-hed/IMG_1162.PNG?url';
+import coolingImage from '/placeholder/foto/image1-31.jpeg?url';
+import reinforcedImage from '/placeholder/foto/image2-33.jpeg?url';
+import customFormsImage from '/placeholder/foto/image3-35.jpeg?url';
+import ProductCard from '@/components/catalog/ProductCard.vue';
+import { fetchNewProducts } from '@/api/directus';
+import type { Product } from '@/types';
 
 type PromoCard = {
   title: string;
@@ -53,6 +61,7 @@ type PromoCard = {
 type PromoTab = {
   id: string;
   label: string;
+  type: 'articles' | 'products';
   cards: PromoCard[];
 };
 
@@ -60,82 +69,71 @@ const tabs = ref<PromoTab[]>([
   {
     id: 'reviews',
     label: 'Обзоры',
+    type: 'articles',
     cards: [
       {
-        title: 'Буферы стоек — полный обзор',
-        description: 'Подбор буферов для различных моделей, советы по эксплуатации.',
+        title: 'Патрубки для систем охлаждения и отопления (турбонаддув, радиаторы, печка)',
+        description: '',
         href: '/articles/obzory-bufery',
-        image: img1154,
+        image: coolingImage,
       },
       {
-        title: 'Топливные шланги',
-        description: 'Разбираем особенности и преимущества силиконовых шлангов.',
+        title: 'Армированные патрубки (4-5 слоев)',
+        description: '',
         href: '/articles/toplivnye-shlangi',
-        image: img1155,
+        image: reinforcedImage,
       },
       {
-        title: 'Подшипники ступиц',
-        description: 'Как выбрать оптимальный комплект для спортивной эксплуатации.',
+        title: 'Патрубки нестандартных форм (угловые, редукционные)',
+        description: '',
         href: '/articles/podshipniki-stupic',
-        image: img1156,
+        image: customFormsImage,
       },
     ],
   },
   {
     id: 'new',
     label: 'Новинки',
-    cards: [
-      {
-        title: 'Серия АВТОСИЛИКОН Pro',
-        description: 'Новая спортивная серия деталей с повышенной износостойкостью.',
-        href: '/articles/novinki-pro',
-        image: img1157,
-      },
-      {
-        title: 'Комплекты стабилизаторов',
-        description: 'Решение «под ключ» для стабилизации хода внедорожников.',
-        href: '/articles/stabilizatory',
-        image: img1158,
-      },
-      {
-        title: 'Сайлентблоки для LADA Vesta',
-        description: 'Усиленный материал и расширенная гарантия.',
-        href: '/articles/silentbloki-vesta',
-        image: img1159,
-      },
-    ],
-  },
-  {
-    id: 'tests',
-    label: 'Тесты',
-    cards: [
-      {
-        title: 'Выдержит ли -40°C?',
-        description: 'Инженерный тест материалов в экстремальных условиях.',
-        href: '/articles/testy-holod',
-        image: img1160,
-      },
-      {
-        title: '10 000 км без поломок',
-        description: 'Отчёт об endurance-тесте на трассе Москва — Владивосток.',
-        href: '/articles/testy-endurance',
-        image: img1161,
-      },
-      {
-        title: 'Сравнение с OEM',
-        description: 'Сравнили наши комплектующие с заводскими аналогами.',
-        href: '/articles/testy-oem',
-        image: img1162,
-      },
-    ],
+    type: 'products',
+    cards: [],
   },
 ]);
 
 const activeTab = ref(tabs.value[0]?.id ?? '');
 
 const activeCards = computed(() => {
-  return tabs.value.find((tab) => tab.id === activeTab.value)?.cards ?? [];
+  const tab = tabs.value.find((item) => item.id === activeTab.value);
+  return tab?.type === 'articles' ? tab.cards : [];
 });
+
+const isProductTab = computed(() => {
+  const tab = tabs.value.find((item) => item.id === activeTab.value);
+  return tab?.type === 'products';
+});
+
+const newProducts = ref<Product[]>([]);
+const isLoading = ref(true);
+const error = ref<string | null>(null);
+
+const loadNewProducts = async () => {
+  isLoading.value = true;
+  error.value = null;
+
+  try {
+    newProducts.value = await fetchNewProducts(6);
+  } catch (err) {
+    console.error('[Promo][NewProducts]', err);
+    error.value = err instanceof Error ? err.message : 'Не удалось загрузить новинки';
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+onMounted(() => {
+  loadNewProducts();
+});
+
+const hasError = computed(() => Boolean(error.value));
 </script>
 
 <style scoped lang="scss">
@@ -148,18 +146,16 @@ const activeCards = computed(() => {
   flex-direction: column;
   gap: var(--space-4);
   margin-bottom: var(--space-5);
-
-  h2 {
-    margin: 0;
-  }
 }
 
 .promo__tabs {
   display: inline-flex;
+  align-self: flex-start;
   background: rgba(0, 0, 0, 0.06);
   border-radius: var(--radius-lg);
-  padding: var(--space-1);
+  padding: var(--space-1) calc(var(--space-1) * 1.5) var(--space-1) var(--space-1);
   gap: var(--space-1);
+  width: fit-content;
 }
 
 .promo__tab {
@@ -193,9 +189,12 @@ const activeCards = computed(() => {
   box-shadow: var(--shadow-sm);
 
   img {
+    width: 100%;
+    max-height: 220px;
     border-radius: var(--radius-md);
-    aspect-ratio: 4 / 3;
-    object-fit: cover;
+    object-fit: contain;
+    display: block;
+    background: rgba(0, 0, 0, 0.04);
   }
 }
 
@@ -203,5 +202,70 @@ const activeCards = computed(() => {
   margin-top: auto;
   font-weight: 600;
   color: var(--accent);
+}
+
+.promo__panel {
+  min-height: 320px;
+}
+
+.promo__state {
+  padding: var(--space-6);
+  text-align: center;
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-secondary);
+}
+
+.promo__state--error {
+  color: var(--danger, #c62828);
+}
+
+.promo__product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-5);
+
+  @media (max-width: 1024px) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-4);
+  }
+
+  @media (max-width: 900px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (max-width: $breakpoint-tablet) {
+    gap: var(--space-3);
+  }
+
+  @media (max-width: $breakpoint-mobile) {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: $breakpoint-tablet) {
+  .promo {
+    padding: var(--space-6) 0;
+  }
+
+  .promo__tabs {
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .promo__panel {
+    min-height: 0;
+  }
+}
+
+@media (max-width: $breakpoint-mobile) {
+  .promo__card {
+    padding: var(--space-4);
+  }
+
+  .promo__panel {
+    min-height: auto;
+  }
 }
 </style>

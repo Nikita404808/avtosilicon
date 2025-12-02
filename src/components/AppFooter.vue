@@ -1,9 +1,6 @@
 <template>
   <footer class="footer">
     <div class="footer__top container">
-      <RouterLink to="/" class="footer__brand">
-        <img :src="footerLogo" alt="АВТОСИЛИКОН" />
-      </RouterLink>
       <div class="footer__columns">
         <section v-for="column in columns" :key="column.title" class="footer__column">
           <h3 class="footer__heading">{{ column.title }}</h3>
@@ -18,8 +15,7 @@
     </div>
     <div class="footer__bottom">
       <div class="container footer__bottom-inner">
-        <span>© 2011–{{ currentYear }} АВТОСИЛИКОН. Все права защищены.</span>
-        <a href="https://cs20.ru/catalog.pdf" target="_blank" rel="noopener">PDF-каталог</a>
+        <span>© 2018–{{ currentYear }} АВТОСИЛИКОН. Все права защищены.</span>
       </div>
     </div>
   </footer>
@@ -28,7 +24,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { RouterLink } from 'vue-router';
-import footerLogo from '/placeholder/img-hed/Pokecut_1761944809641.png?url';
 
 const columns = [
   {
@@ -42,34 +37,30 @@ const columns = [
   {
     title: 'Клиентам',
     links: [
-      { label: 'Гарантия и возврат', href: '/info/warranty', internal: true },
       { label: 'Оплата', href: '/info/payment', internal: true },
       { label: 'Доставка', href: '/info/delivery', internal: true },
+      { label: 'Поддержка', href: '/contacts', internal: true },
     ],
   },
   {
     title: 'Информация',
     links: [
       { label: 'Политика конфиденциальности', href: '/policy', internal: true },
-      { label: 'Использование товарных знаков', href: '#', internal: false },
     ],
   },
   {
-    title: 'Соцсети',
+    title: 'Маркетплейсы',
     links: [
-      { label: 'ВКонтакте', href: 'https://vk.com/cs20', internal: false },
-      { label: 'DRIVE2', href: 'https://www.drive2.ru/c/359008/', internal: false },
-      { label: 'YouTube', href: 'https://www.youtube.com/', internal: false },
-      { label: 'TikTok', href: 'https://www.tiktok.com/', internal: false },
-    ],
-  },
-  {
-    title: 'Где купить',
-    links: [
-      { label: 'OZON', href: 'https://www.ozon.ru/', internal: false },
+      { label: 'OZON', href: 'https://www.ozon.ru/seller/novodel-885208/?miniapp=seller_885208', internal: false },
       { label: 'Wildberries', href: 'https://www.wildberries.ru/', internal: false },
-      { label: 'Exist', href: 'https://www.exist.ru/', internal: false },
-      { label: 'Emex', href: 'https://www.emex.ru/', internal: false },
+      { label: 'Яндекс Маркет', href: 'https://market.yandex.ru/cc/7uTH64', internal: false },
+      { label: 'Avito', href: 'https://www.avito.ru/user/17fc1256e10a89600c7ac7975827b15d/profile?src=sharing', internal: false },
+    ],
+  },
+  {
+    title: 'Отзывы',
+    links: [
+      { label: 'Оставить отзыв во ВКонтакте', href: 'https://vk.com/autosilicone', internal: false },
     ],
   },
 ];
@@ -81,16 +72,7 @@ const currentYear = computed(() => new Date().getFullYear());
 .footer {
   background-color: var(--brand-primary);
   color: #fff;
-  padding-top: var(--space-7);
-}
-
-.footer__brand {
-  display: inline-flex;
-  margin-bottom: var(--space-5);
-
-  img {
-    height: 64px;
-  }
+  padding-top: var(--space-6);
 }
 
 .footer__columns {
@@ -98,6 +80,8 @@ const currentYear = computed(() => new Date().getFullYear());
   gap: var(--space-6);
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   margin-bottom: var(--space-6);
+  justify-items: center;
+  justify-content: center;
 }
 
 .footer__column {
@@ -130,8 +114,10 @@ const currentYear = computed(() => new Date().getFullYear());
 .footer__bottom-inner {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: var(--space-4);
+  text-align: center;
+  flex-wrap: wrap;
 
   a {
     color: var(--accent);
@@ -140,7 +126,12 @@ const currentYear = computed(() => new Date().getFullYear());
 
   @media (max-width: $breakpoint-tablet) {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
+    justify-content: center;
+  }
+
+  @media (max-width: $breakpoint-mobile) {
+    text-align: center;
   }
 }
 </style>

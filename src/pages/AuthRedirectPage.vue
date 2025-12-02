@@ -1,5 +1,5 @@
 <template>
-  <section class="auth-redirect container">
+  <section class="auth-redirect page-content">
     <h1>Вход или регистрация</h1>
     <p>
       Чтобы продолжить, авторизуйтесь. После входа мы вернём вас на страницу

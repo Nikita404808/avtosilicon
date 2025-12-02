@@ -3,6 +3,7 @@ import type { Money } from '@/types';
 
 type CartLine = {
   productId: string;
+  title: string;
   quantity: number;
   price: Money;
 };
@@ -38,6 +39,7 @@ export const useCartStore = defineStore('cart', {
       if (existingLine) {
         existingLine.quantity += line.quantity;
         existingLine.price = line.price;
+        existingLine.title = line.title;
         return;
       }
 

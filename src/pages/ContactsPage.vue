@@ -1,29 +1,20 @@
 <template>
-  <div class="contacts container">
-    <section class="contacts__info">
+  <div class="contacts page-content">
+    <section class="contacts__info page-content">
       <h1>Контакты</h1>
       <ul>
-        <li><strong>Адрес:</strong> Саратовское ш., 52/3, Балаково</li>
-        <li><strong>Режим работы:</strong> Пн–Сб 08:00–20:00</li>
         <li>
-          <strong>Телефоны:</strong>
-          <div class="contacts__phones">
-            <a href="tel:+79061530222">+7 (906) 153-02-22</a>
-            <a href="tel:+79272792360">+7 (927) 279-23-60</a>
-          </div>
+          <strong>Адрес:</strong>
+          413864, Саратовская область, г. Балаково, ул. Саратовское шоссе 52/3, цокольный этаж, ТД
+          «Генезис»
         </li>
+        <li><strong>Режим работы:</strong> Пн–Пт: 08:00–18:00</li>
+        <li><strong>E-mail:</strong> <a href="mailto:autosilicone64@yandex.ru">autosilicone64@yandex.ru</a></li>
+        <li><strong>Телефон:</strong> <a href="tel:+79061530222">+7 (906) 153-02-22</a> — Александр Владимирович</li>
+        <li><strong>Соцсети:</strong> <a href="https://vk.com/autosilicone" target="_blank" rel="noopener">ВКонтакте</a></li>
       </ul>
-      <div class="contacts__marketplaces">
-        <h2>Где купить</h2>
-        <div class="contacts__grid">
-          <a v-for="market in marketplaces" :key="market.id" :href="market.href" target="_blank" rel="noopener">
-            <img :src="market.icon" :alt="market.title" />
-            <span>{{ market.title }}</span>
-          </a>
-        </div>
-      </div>
     </section>
-    <section class="contacts__map">
+    <section class="contacts__map page-content">
       <h2>Офис АВТОСИЛИКОН</h2>
       <div class="contacts__map-frame">
         <iframe
@@ -38,17 +29,6 @@
 </template>
 
 <script setup lang="ts">
-const marketplaces = [
-  { id: 'ozon', title: 'OZON', href: 'https://www.ozon.ru', icon: '/placeholder/mp/ozon.svg' },
-  {
-    id: 'wildberries',
-    title: 'Wildberries',
-    href: 'https://www.wildberries.ru',
-    icon: '/placeholder/mp/wildberries.svg',
-  },
-  { id: 'exist', title: 'Exist', href: 'https://www.exist.ru', icon: '/placeholder/mp/exist.svg' },
-  { id: 'emex', title: 'EMEX', href: 'https://www.emex.ru', icon: '/placeholder/mp/emex.svg' },
-];
 </script>
 
 <style scoped lang="scss">
@@ -60,50 +40,27 @@ const marketplaces = [
 }
 
 .contacts__info {
-  display: grid;
-  gap: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 4px;
+  margin-top: 0;
+  padding-top: var(--space-7);
+  padding-left: 0;
+
+  h1 {
+    margin: 0 0 var(--space-5);
+    line-height: 1.1;
+    padding-left: 0;
+    margin-left: calc(-1 * var(--space-2));
+  }
 
   ul {
     padding: 0;
-    margin: 0;
+    margin: calc(-1 * var(--space-1)) 0 0;
     display: grid;
     gap: var(--space-2);
     list-style: none;
-
-    .contacts__phones {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-3);
-    }
-  }
-}
-
-.contacts__marketplaces {
-  background: var(--surface);
-  border-radius: var(--radius-md);
-  padding: var(--space-4);
-  box-shadow: var(--shadow-sm);
-  display: grid;
-  gap: var(--space-3);
-}
-
-.contacts__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: var(--space-3);
-
-  a {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    border-radius: var(--radius-sm);
-    padding: var(--space-2);
-    background: rgba(0, 0, 0, 0.04);
-
-    img {
-      width: 32px;
-      height: 32px;
-    }
   }
 }
 
@@ -125,6 +82,33 @@ const marketplaces = [
     width: 100%;
     height: 100%;
     border: 0;
+  }
+}
+
+@media (max-width: $breakpoint-mobile) {
+  .contacts {
+    padding-top: var(--space-4);
+    gap: var(--space-4);
+  }
+
+  .contacts__info {
+    background: var(--surface);
+    padding: var(--space-5);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .contacts__info h1 {
+    margin-left: 0;
+    padding-left: 0;
+  }
+
+  .contacts__map {
+    padding: var(--space-4);
+  }
+
+  .contacts__map-frame {
+    height: 200px;
   }
 }
 </style>

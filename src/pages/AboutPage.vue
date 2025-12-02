@@ -1,11 +1,18 @@
 <template>
-  <div class="about container">
-    <section class="about__hero">
-      <h1>О компании АВТОСИЛИКОН</h1>
-      <p>
-        Мы производим автокомпоненты из силикона, полиуретана и резины для легковых и коммерческих
-        автомобилей. Собственный R&amp;D и производство в России.
-      </p>
+  <div class="about page-content">
+    <section class="about__hero page-content">
+      <div class="about__hero-text">
+        <p class="about__eyebrow">О нашей компании</p>
+        <h1>АВТОСИЛИКОН</h1>
+        <p>
+          «АВТОСИЛИКОН» — динамично развивающаяся производственная компания, специализирующаяся на
+          разработке и изготовлении высококачественных силиконовых патрубков и армированных шлангов
+          для автомобильной, промышленной и тюнинг-индустрии.
+        </p>
+      </div>
+      <figure class="about__hero-media">
+        <img :src="aboutHeroImage" alt="Производственные патрубки АВТОСИЛИКОН" />
+      </figure>
     </section>
 
     <section class="about__kpis">
@@ -15,90 +22,96 @@
       </article>
     </section>
 
-    <section class="about__slider">
-      <header>
-        <h2>Упаковка, которой мы гордимся</h2>
-        <p>Каждая партия проходит контроль на герметичность и маркировку.</p>
-      </header>
-      <div class="about__packaging-grid">
-        <article v-for="item in packaging" :key="item.id" class="about__slide">
-          <img :src="item.image" :alt="item.title" />
-          <h3>{{ item.title }}</h3>
-          <p>{{ item.description }}</p>
+    <section class="about__block">
+      <h2>Ключевые факты</h2>
+      <ul>
+        <li v-for="fact in keyFacts" :key="fact">{{ fact }}</li>
+      </ul>
+    </section>
+
+    <section class="about__block">
+      <h2>Наше производство и продукция</h2>
+      <p>
+        Компания основана в 2018 году командой инженеров и энтузиастов, решивших вывести на рынок
+        продукцию, которая по качеству не уступает мировым лидерам и остаётся доступной для
+        отечественных клиентов. Мы используем высокопрочный силиконовый каучук, устойчивый к
+        температурам от -60&deg;C до +260&deg;C, агрессивным химическим средам и высокому давлению.
+        Все патрубки армированы несколькими слоями полиэстеровой или арамидной (Nomex) ткани, что
+        обеспечивает надёжность даже в системах турбонаддува и охлаждения спортивных автомобилей.
+      </p>
+    </section>
+
+    <section class="about__block">
+      <h2>Успех на маркетплейсах</h2>
+      <p>
+        С 2023 года активно развиваем онлайн-продажи и присутствуем на Ozon, Wildberries и
+        Яндекс.Маркете. Покупатели ценят оперативное выполнение заказов и стабильное качество.
+      </p>
+      <ul>
+        <li v-for="advantage in marketplaceAdvantages" :key="advantage">{{ advantage }}</li>
+      </ul>
+    </section>
+
+    <section class="about__block">
+      <h2>Изготовление на заказ</h2>
+      <p>
+        Мы готовы принять заказ на изготовление силиконовых патрубков по вашим требованиям: от
+        стандартных решений до нестандартных форм с оснасткой под конкретный проект.
+      </p>
+      <div class="about__orders">
+        <article>
+          <h3>На основе образца</h3>
+          <p>
+            Вы предоставляете патрубок, который нужно воспроизвести. Мы выполняем измерения и
+            готовим оснастку для производства идентичной детали — идеальный вариант для замены
+            снятых с производства компонентов.
+          </p>
+        </article>
+        <article>
+          <h3>По техническим требованиям</h3>
+          <p>
+            Опишите условия эксплуатации, нагрузки и температуры. Конструкторский отдел подготовит
+            чертёж, подберёт геометрию и марку силикона. Контакты для заказа указаны в разделе
+            «Контакты».
+          </p>
         </article>
       </div>
     </section>
 
-    <section class="about__cards">
-      <article v-for="card in community" :key="card.title" class="about__card">
-        <img :src="card.icon" :alt="card.title" />
-        <h3>{{ card.title }}</h3>
-        <p>{{ card.description }}</p>
-        <a :href="card.href" target="_blank" rel="noopener">Подробнее</a>
-      </article>
-    </section>
-
-    <section class="about__guarantee">
-      <h2>Гарантия</h2>
+    <section class="about__block about__packaging">
+      <h2>Упаковка</h2>
       <p>
-        На большинство изделий АВТОСИЛИКОН действует гарантия до 12 месяцев, которая включает
-        бесплатную замену и поддержку в техническом чате.
+        Упаковка из чёрного рукава из полиэтилена высокого давления (ПВД) защищает продукцию от
+        света и повреждений при транспортировке. Каждый комплект герметично запаивается, маркируется
+        и сопровождается инструкцией, что обеспечивает сохранность патрубков и готовность к работе
+        без дополнительной подготовки.
       </p>
-      <RouterLink to="/info/warranty" class="about__link">Условия гарантии</RouterLink>
+      <img :src="packagingImage" alt="Промышленная упаковка АВТОСИЛИКОН" class="about__packaging-image" />
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { RouterLink } from 'vue-router';
+import aboutHeroImage from '/placeholder/foto/image5-39.jpeg?url';
+import packagingImage from '/placeholder/foto/image6-41-size.jpg?url';
 
 const kpis = [
-  { value: '2011', label: 'Год основания' },
-  { value: '2600+', label: 'SKU в каталоге' },
-  { value: '4.9', label: 'Средняя оценка клиентов' },
-  { value: '12 мес.', label: 'Гарантия на продукцию' },
+  { value: '2018', label: 'Год основания' },
+  { value: '100+', label: 'Товаров в каталоге' },
+  { value: '4.8 / 5', label: 'Средняя оценка' },
+  { value: '2+ года', label: 'Опыт на маркетплейсах' },
 ];
 
-const packaging = [
-  {
-    id: 'pack1',
-    title: 'Индивидуальные zip-пакеты',
-    description: 'Этикетка с QR-кодом на карточку товара и инструкцию по установке.',
-    image: '/placeholder/about/pack1.svg',
-  },
-  {
-    id: 'pack2',
-    title: 'Фирменные боксы АВТОСИЛИКОН',
-    description: 'Гофрокартон с усиленной защитой углов для транспортировки.',
-    image: '/placeholder/about/pack2.svg',
-  },
-  {
-    id: 'pack3',
-    title: 'Прозрачная маркировка',
-    description: 'Легко организовать склад и вести учёт в сервисах учёта.',
-    image: '/placeholder/about/pack3.svg',
-  },
+const keyFacts = [
+  'Специализируемся на армированных, прямых, переходных и редукционных патрубках.',
+  'Работаем с автомобильной, промышленной и тюнинг-индустрией.',
+  'Более двух лет активного присутствия на маркетплейсах.',
 ];
 
-const community = [
-  {
-    title: 'Гонки',
-    description: 'Поддерживаем команды в RDS и кольцевых чемпионатах.',
-    href: 'https://vk.com/cs20',
-    icon: '/placeholder/about/racing.svg',
-  },
-  {
-    title: 'Выставки',
-    description: 'Выступаем на Automechanika, MIMS, делимся инновациями.',
-    href: 'https://mims.ru',
-    icon: '/placeholder/about/expo.svg',
-  },
-  {
-    title: 'Благотворительность',
-    description: 'Помогаем автошколам и образовательным проектам.',
-    href: '#',
-    icon: '/placeholder/about/charity.svg',
-  },
+const marketplaceAdvantages = [
+  'Постоянное наличие 500+ SKU на складах партнёров.',
+  'Прямые поставки от производителя и гарантированное качество.',
+  'Высокие рейтинги и отзывы за оперативность и надёжность.',
 ];
 </script>
 
@@ -106,13 +119,44 @@ const community = [
 .about {
   padding: var(--space-6) 0 var(--space-8);
   display: grid;
-  gap: var(--space-8);
+  gap: var(--space-6);
+  overflow-x: hidden;
 }
 
 .about__hero {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-6);
+  align-items: center;
+}
+
+.about__hero-text {
+  display: grid;
   gap: var(--space-3);
-  max-width: 720px;
+}
+
+.about__eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.about__hero-media {
+  margin: 0;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  max-width: 560px;
+  justify-self: center;
+
+  img {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 420px;
+    object-fit: cover;
+  }
 }
 
 .about__kpis {
@@ -135,71 +179,93 @@ const community = [
   font-weight: 700;
 }
 
-.about__slider {
-  display: grid;
-  gap: var(--space-4);
-}
-
-.about__packaging-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--space-4);
-}
-
-.about__slide {
+.about__block {
   background: var(--surface);
   border-radius: var(--radius-md);
-  padding: var(--space-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  box-shadow: var(--shadow-sm);
-  text-align: center;
-
-  img {
-    height: 160px;
-    object-fit: contain;
-  }
-}
-
-.about__cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--space-4);
-}
-
-.about__card {
-  background: var(--surface);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
-  padding: var(--space-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  text-align: center;
-
-  img {
-    width: 64px;
-    height: 64px;
-    margin: 0 auto;
-  }
-
-  a {
-    color: var(--accent);
-    font-weight: 600;
-  }
-}
-
-.about__guarantee {
-  background: var(--bg);
-  border-radius: var(--radius-lg);
   padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
   display: grid;
   gap: var(--space-3);
+  word-break: break-word;
+
+  ul {
+    margin: 0;
+    padding-left: 1.2rem;
+    display: grid;
+    gap: var(--space-2);
+  }
 }
 
-.about__link {
-  color: var(--accent);
-  font-weight: 600;
+.about__orders {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+
+  article {
+    background: var(--bg);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    display: grid;
+    gap: var(--space-2);
+  }
+}
+
+.about__packaging {
+  background: #101010;
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+}
+
+.about__packaging-image {
+  width: 100%;
+  max-width: 720px;
+  border-radius: var(--radius-md);
+  object-fit: contain;
+  max-height: 420px;
+  display: block;
+  margin: 0 auto;
+}
+
+@media (max-width: $breakpoint-tablet) {
+  .about {
+    padding-top: var(--space-5);
+    gap: var(--space-5);
+  }
+
+  .about__hero {
+    gap: var(--space-4);
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+}
+
+@media (max-width: $breakpoint-mobile) {
+  .about {
+    padding-top: var(--space-4);
+    gap: var(--space-4);
+  }
+
+  .about__hero-text {
+    text-align: center;
+  }
+
+  .about__kpis {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+
+  .about__block {
+    padding: var(--space-4);
+    text-align: left;
+  }
+
+  .about__orders article {
+    padding: var(--space-3);
+  }
+
+  .about__packaging-image {
+    max-height: 320px;
+  }
 }
 </style>

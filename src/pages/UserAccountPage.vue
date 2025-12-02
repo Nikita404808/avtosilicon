@@ -1,5 +1,5 @@
 <template>
-  <div class="account-page container">
+  <div class="account-page page-content">
     <section v-if="!authStore.isAuthenticated" class="account-page__unauth">
       <h1>Войдите в личный кабинет</h1>
       <p>Для доступа к данным аккаунта необходимо авторизоваться.</p>

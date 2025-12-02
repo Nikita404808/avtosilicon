@@ -280,6 +280,7 @@ export const useUserStore = defineStore('user', {
                     if (product) {
                         cartStore.addItem({
                             productId: String(product.id),
+                            title: product.title,
                             quantity: line.quantity,
                             price: toMoney(product.price),
                         });
@@ -378,6 +379,21 @@ function normalizeMockProduct(raw, index) {
         : typeof raw.price === 'number'
             ? raw.price
             : null;
+    const carModelName = typeof raw.carModel === 'string' ? raw.carModel : null;
+    const carModel = carModelName
+        ? {
+            id: carModelName,
+            name: carModelName,
+            image: typeof raw.carModelImage === 'string' ? raw.carModelImage : null,
+        }
+        : null;
+    const partTypeName = typeof raw.partType === 'string' ? raw.partType : null;
+    const partType = partTypeName
+        ? {
+            id: partTypeName,
+            name: partTypeName,
+        }
+        : null;
     return {
         id: numericId,
         legacyId,
@@ -387,8 +403,8 @@ function normalizeMockProduct(raw, index) {
         sku: typeof raw.sku === 'string' ? raw.sku : null,
         price: typeof priceValue === 'number' && Number.isFinite(priceValue) ? priceValue : null,
         brand: typeof raw.brand === 'string' ? raw.brand : null,
-        carBrand: typeof raw.carBrand === 'string' ? raw.carBrand : null,
-        carModel: typeof raw.carModel === 'string' ? raw.carModel : null,
+        carModel,
+        partType,
         description: typeof raw.description === 'string' ? raw.description : null,
         descriptionHtml: typeof raw.descriptionHtml === 'string' ? raw.descriptionHtml : '',
         image: images[0] ?? null,
@@ -396,25 +412,29 @@ function normalizeMockProduct(raw, index) {
         innerDiameter: typeof raw.innerDiameter === 'number'
             ? raw.innerDiameter
             : typeof raw.innerDiameter === 'string'
-                ? Number.parseFloat(raw.innerDiameter)
+                ? raw.innerDiameter.trim() || null
                 : null,
         inStock: typeof raw.inStock === 'boolean' ? raw.inStock : true,
         categories: Array.isArray(raw.categories)
             ? raw.categories.filter((item) => typeof item === 'string')
             : [],
-        compatibility: Array.isArray(raw.compatibility)
-            ? raw.compatibility.filter((item) => typeof item === 'string')
-            : [],
         code: typeof raw.code === 'string' ? raw.code : null,
         material: typeof raw.material === 'string' ? raw.material : null,
+        color: typeof raw.color === 'string' ? raw.color : null,
         series: typeof raw.series === 'string' ? raw.series : null,
         transportType: typeof raw.transportType === 'string' ? raw.transportType : null,
         barcode: typeof raw.barcode === 'string' ? raw.barcode : null,
-        weightKg: typeof raw.weightKg === 'number'
-            ? raw.weightKg
-            : typeof raw.weightKg === 'string'
-                ? Number.parseFloat(raw.weightKg)
-                : null,
+        weight: typeof raw.weight === 'number'
+            ? raw.weight
+            : typeof raw.weight === 'string'
+                ? raw.weight.trim() || null
+                : typeof raw.weightKg === 'number'
+                    ? raw.weightKg
+                    : typeof raw.weightKg === 'string'
+                        ? raw.weightKg.trim() || null
+                        : null,
+        createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : null,
+        isNew: Boolean(raw.isNew),
     };
 }
 function formatNameFromEmail(email) {

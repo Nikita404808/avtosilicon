@@ -23,6 +23,7 @@ export const useCartStore = defineStore('cart', {
             if (existingLine) {
                 existingLine.quantity += line.quantity;
                 existingLine.price = line.price;
+                existingLine.title = line.title;
                 return;
             }
             this.lines.push({ ...line });

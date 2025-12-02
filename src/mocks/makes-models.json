@@ -38,5 +38,12 @@
       "Volkswagen Multivan T5",
       "Audi A3 1.8 TFSI"
     ]
+  },
+  {
+    "id": "uaz",
+    "label": "УАЗ",
+    "value": "uaz",
+    "keywords": ["uaz", "уаз", "patriot", "hunter", "буханка"],
+    "models": ["УАЗ Patriot", "УАЗ Hunter", "УАЗ Буханка"]
   }
 ]

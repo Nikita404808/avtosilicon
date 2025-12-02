@@ -31,4 +31,17 @@ defineProps<{
     font-size: var(--fz-body);
   }
 }
+
+@media (max-width: $breakpoint-tablet) {
+  .compatibility {
+    padding: var(--space-5);
+  }
+}
+
+@media (max-width: $breakpoint-mobile) {
+  .compatibility {
+    padding: var(--space-4);
+    border-radius: var(--radius-lg);
+  }
+}
 </style>

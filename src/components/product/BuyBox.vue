@@ -64,6 +64,7 @@ const decrement = () => {
 const addToCart = () => {
   cartStore.addItem({
     productId: String(props.product.id),
+    title: props.product.title,
     quantity: quantity.value,
     price: {
       amount: props.product.price ?? 0,
@@ -106,6 +107,7 @@ const addToCart = () => {
   display: flex;
   align-items: center;
   gap: var(--space-4);
+  flex-wrap: wrap;
 }
 
 .buybox__label {
@@ -143,5 +145,38 @@ const addToCart = () => {
   color: #fff;
   font-weight: 600;
   font-size: 18px;
+  min-height: 52px;
+  width: 100%;
+}
+
+@media (max-width: 1024px) {
+  .buybox {
+    padding: var(--space-5);
+  }
+
+  .buybox__controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .buybox__stepper {
+    width: 100%;
+    justify-content: space-between;
+
+    input {
+      width: 80px;
+    }
+  }
+}
+
+@media (max-width: $breakpoint-mobile) {
+  .buybox {
+    border-radius: var(--radius-lg);
+    padding: var(--space-4);
+  }
+
+  .buybox__price {
+    align-self: flex-end;
+  }
 }
 </style>

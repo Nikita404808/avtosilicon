@@ -44,4 +44,12 @@ defineProps<{
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: var(--space-4);
 }
+
+@media (max-width: $breakpoint-tablet) {
+  .related__header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+}
 </style>

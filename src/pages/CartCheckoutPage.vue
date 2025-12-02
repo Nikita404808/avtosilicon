@@ -1,5 +1,5 @@
 <template>
-  <section class="checkout-page container">
+  <section class="checkout-page page-content">
     <h1>Оформление заказа</h1>
     <p>Мы открыли окно оформления заказа. Если оно закрыто, нажмите кнопку ниже.</p>
     <button type="button" @click="reopenCheckout">Открыть снова</button>

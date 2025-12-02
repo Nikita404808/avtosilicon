@@ -8,6 +8,7 @@ export const useAuthStore = defineStore('auth', {
         user: null,
         token: null,
         isAuthModalOpen: false,
+        authModalMode: 'login',
         authError: null,
         postAuthRedirect: null,
     }),
@@ -16,11 +17,15 @@ export const useAuthStore = defineStore('auth', {
         needsEmailVerification: (state) => Boolean(state.user && !state.user.emailVerified),
     },
     actions: {
-        toggleModal(isOpen) {
+        toggleModal(isOpen, mode = 'login') {
+            this.authModalMode = mode;
             this.isAuthModalOpen = typeof isOpen === 'boolean' ? isOpen : !this.isAuthModalOpen;
             if (!this.isAuthModalOpen) {
                 this.setError(null);
             }
+        },
+        setModalMode(mode) {
+            this.authModalMode = mode;
         },
         setError(message) {
             this.authError = message;

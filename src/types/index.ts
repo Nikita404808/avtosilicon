@@ -10,7 +10,8 @@ export type OrderLine = {
   price: Money;
 };
 
-export type { Product } from '@/api/directus';
+export type { Product, CarModelRef, PartTypeRef } from '@/api/directus';
+export type { NewsItem } from './news';
 
 export type FilterState = {
   q?: string;

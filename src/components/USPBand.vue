@@ -33,8 +33,9 @@ defineProps<{
 
 <style scoped lang="scss">
 .usp-band {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, #ffffff 100%);
+  background: transparent;
   padding: var(--space-8) 0;
+  margin: 0;
 }
 
 .usp-band__container {

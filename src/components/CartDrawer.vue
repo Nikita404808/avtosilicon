@@ -20,7 +20,7 @@
         <section class="drawer__body" v-if="cartStore.hasItems">
           <article v-for="line in cartStore.lines" :key="line.productId" class="drawer__line">
             <div class="drawer__line-info">
-              <h3>Товар {{ line.productId }}</h3>
+              <h3>{{ line.title || `Товар ${line.productId}` }}</h3>
               <p>{{ formatMoney(line.price) }}</p>
             </div>
             <div class="drawer__line-actions">
@@ -239,6 +239,12 @@ const watchIsOpen = (isMounted: boolean) => {
   align-items: center;
   gap: var(--space-4);
 
+  > div {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+  }
+
   strong {
     font-size: 20px;
   }
@@ -273,5 +279,32 @@ const watchIsOpen = (isMounted: boolean) => {
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
   border: 0;
+}
+
+@media (max-width: $breakpoint-mobile) {
+  .drawer__panel {
+    width: 100vw;
+    border-radius: 0;
+    padding: var(--space-4);
+  }
+
+  .drawer__line {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .drawer__line-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .drawer__footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .drawer__checkout {
+    width: 100%;
+  }
 }
 </style>

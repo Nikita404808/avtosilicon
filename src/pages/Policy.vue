@@ -1,5 +1,5 @@
 <template>
-  <div class="policy container">
+  <div class="policy page-content">
     <h1>Политика конфиденциальности</h1>
     <section v-for="section in sections" :key="section.title">
       <h2>{{ section.title }}</h2>
@@ -44,7 +44,7 @@ const sections = [
     title: '5. Права пользователя',
     paragraphs: [
       'Уточнение персональных данных, блокирование или уничтожение, если данные являются неполными.',
-      'Отзыв согласия на обработку путём направления письменного уведомления на support@cs20.ru.',
+      'Отзыв согласия на обработку путём направления письменного уведомления на autosilicone64@yandex.ru.',
     ],
   },
 ];

@@ -1,5 +1,5 @@
 <template>
-  <div class="reset container">
+  <div class="reset page-content">
     <section class="reset__card">
       <h1>Сброс пароля</h1>
 
@@ -109,6 +109,7 @@ const submit = async () => {
     border: 1px solid var(--border);
     padding: var(--space-2) var(--space-3);
     outline: none;
+    min-height: 48px;
 
     &:focus {
       border-color: var(--accent);
@@ -124,6 +125,7 @@ const submit = async () => {
     color: #fff;
     padding: var(--space-3) var(--space-5);
     font-weight: 600;
+    min-height: 52px;
 
     &:disabled {
       opacity: 0.6;
@@ -154,5 +156,20 @@ const submit = async () => {
 .reset__link {
   color: var(--accent);
   font-weight: 600;
+}
+
+@media (max-width: $breakpoint-mobile) {
+  .reset {
+    padding-top: var(--space-5);
+  }
+
+  .reset__card {
+    padding: var(--space-4);
+    border-radius: var(--radius-md);
+  }
+
+  .reset__form button {
+    width: 100%;
+  }
 }
 </style>

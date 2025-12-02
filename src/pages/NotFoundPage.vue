@@ -1,5 +1,5 @@
 <template>
-  <div class="notfound container">
+  <div class="notfound page-content">
     <h1>404</h1>
     <p>Страница не найдена или была перенесена.</p>
     <RouterLink to="/" class="notfound__link">Вернуться на главную</RouterLink>

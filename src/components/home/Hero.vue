@@ -2,18 +2,17 @@
   <section class="hero">
     <div class="container hero__container">
       <div class="hero__content">
-        <p class="hero__eyebrow">АВТОСИЛИКОН — 12 лет на рынке</p>
+        <p class="hero__eyebrow">АВТОСИЛИКОН — 7 лет на рынке</p>
         <h1 class="hero__title">
-          Автозапчасти из силикона, полиуретана и резины для вашего авто
+          Производство армированных силиконовых патрубков для авто, спецтехники и промышленности.
         </h1>
         <p class="hero__description">
-          Подбор по марке, премиальная линейка, собственные разработки инженеров АВТОСИЛИКОН.
+          Изготовление по ГОСТ и индивидуальным чертежам.
         </p>
         <RouterLink to="/catalog" class="hero__cta">Перейти в каталог</RouterLink>
       </div>
       <div class="hero__media" aria-hidden="true">
-        <img :src="heroPrimary" alt="" class="hero__photo hero__photo--primary" />
-        <img :src="heroSecondary" alt="" class="hero__photo hero__photo--secondary" />
+        <img :src="heroPrimary" alt="" class="hero__photo" />
       </div>
     </div>
   </section>
@@ -22,14 +21,12 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router';
 import heroPrimary from '/placeholder/img-hed/IMG_1153.PNG?url';
-import heroSecondary from '/placeholder/img-hed/IMG_1156.PNG?url';
 </script>
 
 <style scoped lang="scss">
 .hero {
   padding: var(--space-8) 0;
-  background: radial-gradient(circle at top right, rgba(118, 194, 240, 0.25), transparent 60%),
-    #fff;
+  background: #fff;
 }
 
 .hero__container {
@@ -79,30 +76,40 @@ import heroSecondary from '/placeholder/img-hed/IMG_1156.PNG?url';
 
 .hero__media {
   position: relative;
-  display: grid;
-  place-items: center;
-  min-height: clamp(280px, 35vw, 420px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: clamp(320px, 38vw, 520px);
 }
 
 .hero__photo {
-  width: clamp(260px, 32vw, 420px);
+  width: clamp(320px, 40vw, 560px);
   aspect-ratio: 4 / 3;
   object-fit: cover;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
 }
 
-.hero__photo--primary {
-  z-index: 2;
-}
+@media (max-width: $breakpoint-mobile) {
+  .hero {
+    padding: var(--space-6) 0 var(--space-5);
+  }
 
-.hero__photo--secondary {
-  position: absolute;
-  width: clamp(180px, 24vw, 320px);
-  transform: translate(38%, 32%);
-  border-radius: var(--radius-md);
-  border: 6px solid #fff;
-  box-shadow: var(--shadow-md);
-  z-index: 1;
+  .hero__container {
+    gap: var(--space-5);
+  }
+
+  .hero__media {
+    order: -1;
+    min-height: 240px;
+  }
+
+  .hero__photo {
+    width: min(100%, 420px);
+  }
+
+  .hero__content {
+    gap: var(--space-4);
+  }
 }
 </style>

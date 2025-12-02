@@ -12,6 +12,7 @@ type AuthState = {
   user: AuthUser | null;
   token: string | null;
   isAuthModalOpen: boolean;
+  authModalMode: 'login' | 'register';
   authError: string | null;
   postAuthRedirect: string | null;
 };
@@ -25,6 +26,7 @@ export const useAuthStore = defineStore('auth', {
     user: null,
     token: null,
     isAuthModalOpen: false,
+    authModalMode: 'login',
     authError: null,
     postAuthRedirect: null,
   }),
@@ -33,11 +35,15 @@ export const useAuthStore = defineStore('auth', {
     needsEmailVerification: (state) => Boolean(state.user && !state.user.emailVerified),
   },
   actions: {
-    toggleModal(isOpen?: boolean) {
+    toggleModal(isOpen?: boolean, mode: 'login' | 'register' = 'login') {
+      this.authModalMode = mode;
       this.isAuthModalOpen = typeof isOpen === 'boolean' ? isOpen : !this.isAuthModalOpen;
       if (!this.isAuthModalOpen) {
         this.setError(null);
       }
+    },
+    setModalMode(mode: 'login' | 'register') {
+      this.authModalMode = mode;
     },
     setError(message: string | null) {
       this.authError = message;

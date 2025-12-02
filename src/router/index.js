@@ -25,6 +25,12 @@ const routes = [
         meta: { title: 'Новости и обзоры — АВТОСИЛИКОН' },
     },
     {
+        path: '/articles/:slug',
+        name: 'article-details',
+        component: () => import('@/pages/ArticleDetailsPage.vue'),
+        meta: { title: 'Новость — АВТОСИЛИКОН' },
+    },
+    {
         path: '/about',
         name: 'about',
         component: () => import('@/pages/AboutPage.vue'),
@@ -59,12 +65,6 @@ const routes = [
         name: 'reset-password',
         component: () => import('@/pages/ResetPasswordPage.vue'),
         meta: { title: 'Восстановление пароля — АВТОСИЛИКОН' },
-    },
-    {
-        path: '/info/warranty',
-        name: 'info-warranty',
-        component: () => import('@/pages/InfoWarranty.vue'),
-        meta: { title: 'Гарантия и возврат — АВТОСИЛИКОН' },
     },
     {
         path: '/info/delivery',
