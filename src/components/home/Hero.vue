@@ -113,5 +113,10 @@ import heroPrimary from '/placeholder/img-hed/IMG_1153.PNG?url';
   .hero__content {
     gap: var(--space-4);
   }
+
+  .hero__title {
+    font-size: 26px;
+    line-height: 32px;
+  }
 }
 </style>
