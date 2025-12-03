@@ -103,13 +103,11 @@ import heroPrimary from '/placeholder/img-hed/IMG_1153.PNG?url';
   }
 
   .hero__media {
-    order: -1;
-    min-height: 240px;
+    display: none;
   }
 
   .hero__photo {
-    width: 100%;
-    max-width: none;
+    display: none;
   }
 
   .hero__content {

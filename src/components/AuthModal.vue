@@ -537,7 +537,7 @@ watch(showResetModal, (isOpen) => {
     padding-left: 0;
 
     .modal__ghost-button {
-      width: 100%;
+      width: auto;
       text-align: left;
     }
   }
@@ -547,7 +547,7 @@ watch(showResetModal, (isOpen) => {
     align-items: center;
     justify-content: flex-start;
     gap: var(--space-2);
-    width: 100%;
+    width: auto;
   }
 
   .modal__create-account small {
