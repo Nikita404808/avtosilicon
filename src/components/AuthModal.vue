@@ -532,7 +532,7 @@ watch(showResetModal, (isOpen) => {
 @media (max-width: 480px) {
   .modal__inline-actions {
     flex-direction: column;
-    align-items: stretch;
+    align-items: flex-start;
     gap: var(--space-2);
     padding-left: 0;
 
@@ -545,13 +545,13 @@ watch(showResetModal, (isOpen) => {
   .modal__create-account {
     flex-direction: row;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: var(--space-2);
     width: 100%;
   }
 
   .modal__create-account small {
-    margin-left: auto;
+    margin-left: var(--space-2);
   }
 }
 

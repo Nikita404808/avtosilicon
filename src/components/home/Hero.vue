@@ -80,15 +80,17 @@ import heroPrimary from '/placeholder/img-hed/IMG_1153.PNG?url';
   justify-content: center;
   align-items: center;
   min-height: clamp(320px, 38vw, 520px);
+  width: 100%;
 }
 
 .hero__photo {
-  width: min(100%, 480px);
-  max-width: 100%;
+  width: 100%;
+  max-width: 560px;
   aspect-ratio: 4 / 3;
   object-fit: cover;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
+  margin-inline: auto;
 }
 
 @media (max-width: $breakpoint-mobile) {
@@ -103,11 +105,11 @@ import heroPrimary from '/placeholder/img-hed/IMG_1153.PNG?url';
   .hero__media {
     order: -1;
     min-height: 240px;
-    width: 100%;
   }
 
   .hero__photo {
-    width: min(100%, 360px);
+    width: 100%;
+    max-width: none;
   }
 
   .hero__content {
