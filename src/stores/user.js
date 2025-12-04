@@ -237,23 +237,6 @@ export const useUserStore = defineStore('user', {
             }
             catch (error) {
                 logAuthError(error);
-                if (!this.orderHistory.length) {
-                    const fallbackTotal = { amount: 4011, currency: 'RUB' };
-                    this.orderHistory = [
-                        {
-                            id: 'demo-order',
-                            number: 'АВТОСИЛИКОН-0001',
-                            createdAt: new Date().toISOString(),
-                            status: 'delivered',
-                            total: fallbackTotal,
-                            shippingAddressId: this.selectedAddressId ?? this.addresses[0]?.id,
-                            items: buildFallbackOrderItems([
-                                { productId: 'p-1001', quantity: 1 },
-                                { productId: 'p-1004', quantity: 2 },
-                            ]),
-                        },
-                    ];
-                }
             }
             finally {
                 this.isLoadingOrders = false;
@@ -299,15 +282,13 @@ export const useUserStore = defineStore('user', {
             const order = this.orderHistory.find((item) => item.id === payload.orderId);
             if (order) {
                 order.items.forEach((line) => {
-                    const product = findProduct(line.productId);
-                    if (product) {
-                        cartStore.addItem({
-                            productId: String(product.id),
-                            title: product.title,
-                            quantity: line.quantity,
-                            price: toMoney(product.price),
-                        });
-                    }
+                    const price = toMoney(line.price?.amount ?? 0);
+                    cartStore.addItem({
+                        productId: String(line.productId),
+                        title: line.title,
+                        quantity: line.quantity,
+                        price,
+                    });
                 });
                 cartStore.toggleCart(true);
             }
