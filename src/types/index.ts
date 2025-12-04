@@ -26,6 +26,7 @@ export type UserProfile = {
   name: string;
   email: string;
   phone?: string;
+  bonusBalance?: number;
   loyaltyPoints?: number;
   emailVerified?: boolean;
 };
@@ -51,6 +52,7 @@ export type OrderSummary = {
   total: Money;
   items: OrderLine[];
   shippingAddressId?: string;
+  bonus?: OrderBonusInfo;
 };
 
 export type PointsHistoryItem = {
@@ -59,4 +61,12 @@ export type PointsHistoryItem = {
   amount: number;
   description: string;
   createdAt: string;
+};
+
+export type OrderBonusInfo = {
+  spent: number;
+  earned: number;
+  payable: number;
+  balanceAfter?: number;
+  orderTotal?: number;
 };

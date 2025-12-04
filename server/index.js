@@ -145,7 +145,7 @@ async function handleRegister(req, res) {
       `
         INSERT INTO users (email, password_hash)
         VALUES ($1, $2)
-        RETURNING id, email, name, email_verified
+        RETURNING id, email, name, email_verified, bonus_balance
       `,
       [email, passwordHash],
     );
@@ -174,10 +174,7 @@ async function handleLogin(req, res) {
       return;
     }
 
-    const queryResult = await pool.query(
-      'SELECT id, email, password_hash, name, email_verified FROM users WHERE email = $1',
-      [email],
-    );
+    const queryResult = await pool.query('SELECT id, email, password_hash, name, email_verified, bonus_balance FROM users WHERE email = $1', [email]);
 
     if (queryResult.rowCount === 0) {
       sendJson(res, 401, { message: 'Неверный email или пароль.' });
@@ -428,18 +425,80 @@ async function handleCreateOrder(req, res) {
 
     const payload = await readJsonBody(req);
     const order = payload?.order;
+    const useBonuses = Boolean(payload?.useBonuses);
 
     if (!order || typeof order !== 'object' || Array.isArray(order) || !Object.keys(order).length) {
       sendJson(res, 400, { message: 'Некорректные данные заказа.' });
       return;
     }
 
-    await pool.query('INSERT INTO order_history (user_id, order_data) VALUES ($1, $2::jsonb)', [
-      authUser.id,
-      JSON.stringify(order),
-    ]);
+    const orderTotal = calculateOrderTotal(order);
+    const client = await pool.connect();
 
-    sendJson(res, 200, { success: true });
+    try {
+      await client.query('BEGIN');
+
+      const balanceResult = await client.query(
+        'SELECT bonus_balance FROM users WHERE id = $1 FOR UPDATE',
+        [authUser.id],
+      );
+
+      if (balanceResult.rowCount === 0) {
+        await client.query('ROLLBACK');
+        sendJson(res, 404, { message: 'Пользователь не найден.' });
+        return;
+      }
+
+      const currentBalance = Number(balanceResult.rows[0].bonus_balance) || 0;
+      const { usedBonus, bonusEarned, payable, newBalance } = calculateBonuses({
+        orderTotal,
+        bonusBalance: currentBalance,
+        useBonuses,
+      });
+
+      const orderPayload = enrichOrderData(order, {
+        usedBonus,
+        bonusEarned,
+        payable,
+        orderTotal,
+        newBalance,
+      });
+
+      const insertResult = await client.query(
+        `
+          INSERT INTO order_history (user_id, order_data, bonus_spent, bonus_earned, payable_amount)
+          VALUES ($1, $2::jsonb, $3, $4, $5)
+          RETURNING id
+        `,
+        [authUser.id, JSON.stringify(orderPayload), usedBonus, bonusEarned, payable],
+      );
+
+      await client.query(
+        `
+          UPDATE users
+          SET bonus_balance = $1,
+              updated_at = NOW()
+          WHERE id = $2
+        `,
+        [newBalance, authUser.id],
+      );
+
+      await client.query('COMMIT');
+
+      sendJson(res, 200, {
+        success: true,
+        orderId: insertResult.rows[0]?.id ?? null,
+        usedBonus,
+        bonusEarned,
+        payable,
+        newBonusBalance: newBalance,
+      });
+    } catch (innerError) {
+      await client.query('ROLLBACK');
+      throw innerError;
+    } finally {
+      client.release();
+    }
   } catch (error) {
     handleServerError(res, error);
   }
@@ -452,7 +511,7 @@ async function handleGetOrders(req, res) {
 
     const ordersResult = await pool.query(
       `
-        SELECT id, order_data, created_at
+        SELECT id, order_data, created_at, bonus_spent, bonus_earned, payable_amount
         FROM order_history
         WHERE user_id = $1
         ORDER BY created_at DESC
@@ -541,7 +600,7 @@ async function getAuthenticatedUser(req, res, options = {}) {
 
   const fields = options.includeSensitive
     ? '*'
-    : 'id, email, name, email_verified';
+    : 'id, email, name, email_verified, bonus_balance';
   const userResult = await pool.query(`SELECT ${fields} FROM users WHERE id = $1`, [session.userId]);
 
   if (userResult.rowCount === 0) {
@@ -576,6 +635,7 @@ function buildAuthResponse(user, token) {
     email: user.email,
     name: user.name ?? null,
     email_verified: Boolean(user.email_verified),
+    bonus_balance: Number(user.bonus_balance) || 0,
     ...(token ? { token } : {}),
   };
 }
@@ -587,4 +647,55 @@ function isThrottled(map, key) {
   }
   map.set(key, Date.now());
   return false;
+}
+
+function calculateOrderTotal(order) {
+  if (!order || typeof order !== 'object') return 0;
+
+  if (Array.isArray(order.items)) {
+    return order.items.reduce((sum, item) => {
+      if (!item || typeof item !== 'object') return sum;
+      const priceAmount = Number(item?.price?.amount);
+      const quantity = Number(item?.quantity);
+      if (!Number.isFinite(priceAmount) || !Number.isFinite(quantity)) return sum;
+      const sanitizedPrice = Math.max(0, Math.floor(priceAmount));
+      const sanitizedQty = Math.max(0, Math.floor(quantity));
+      return sum + sanitizedPrice * sanitizedQty;
+    }, 0);
+  }
+
+  const fallbackTotal = Number(order?.total?.amount);
+  if (Number.isFinite(fallbackTotal)) {
+    return Math.max(0, Math.floor(fallbackTotal));
+  }
+  return 0;
+}
+
+function calculateBonuses({ orderTotal, bonusBalance, useBonuses }) {
+  const safeOrderTotal = Math.max(0, Math.floor(Number(orderTotal) || 0));
+  const safeBalance = Math.max(0, Math.floor(Number(bonusBalance) || 0));
+  const useBonusFlag = Boolean(useBonuses);
+
+  const usedBonus = useBonusFlag ? Math.min(safeBalance, safeOrderTotal) : 0;
+  const payable = safeOrderTotal - usedBonus;
+  const bonusEarned = useBonusFlag ? 0 : Math.floor(safeOrderTotal * 0.02);
+  const newBalance = useBonusFlag ? safeBalance - usedBonus : safeBalance + bonusEarned;
+
+  return { usedBonus, bonusEarned, payable, newBalance };
+}
+
+function enrichOrderData(order, bonusPayload) {
+  const existing = order && typeof order === 'object' ? order : {};
+  const totalAmount = Number(bonusPayload?.orderTotal) || calculateOrderTotal(order);
+  return {
+    ...existing,
+    total: order?.total ?? { amount: totalAmount, currency: 'RUB' },
+    bonus: {
+      spent: bonusPayload.usedBonus,
+      earned: bonusPayload.bonusEarned,
+      payable: bonusPayload.payable,
+      balanceAfter: bonusPayload.newBalance,
+      orderTotal: bonusPayload.orderTotal,
+    },
+  };
 }

@@ -49,9 +49,18 @@
           </section>
 
           <section class="checkout__section checkout__summary">
-            <div>
-              <span>Стоимость доставки:</span>
-              <strong>—</strong>
+            <div class="checkout__summary-info">
+              <div>
+                <span>Стоимость доставки:</span>
+                <strong>—</strong>
+              </div>
+              <label :class="['checkout__bonus', { 'checkout__bonus--disabled': !canUseBonuses }]">
+                <input v-model="useBonuses" type="checkbox" :disabled="!canUseBonuses" />
+                <div>
+                  <span>Использовать бонусы</span>
+                  <small>Доступно: {{ formattedBonusBalance }}</small>
+                </div>
+              </label>
             </div>
             <button type="button" class="checkout__pay" :disabled="!selectedPointId" @click="handlePay">
               Оплатить
@@ -64,7 +73,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
 const props = defineProps<{
   open: boolean;
@@ -73,10 +82,14 @@ const props = defineProps<{
 import CheckoutMap from '@/components/checkout/PickupMap.vue';
 import { getPickupPoints } from '@/services/pickupService';
 import type { DeliveryServiceId, PickupPoint, MapBounds } from '@/types/pickup';
+import { useUserStore } from '@/stores/user';
 
 const emit = defineEmits<{
   (event: 'close'): void;
-  (event: 'submit', payload: { service: DeliveryServiceId; point: PickupPoint | null }): void;
+  (
+    event: 'submit',
+    payload: { service: DeliveryServiceId; point: PickupPoint | null; useBonuses: boolean },
+  ): void;
 }>();
 
 const services: Array<{ id: DeliveryServiceId; label: string }> = [
@@ -91,11 +104,23 @@ const pickupPoints = ref<PickupPoint[]>([]);
 const isLoading = ref(false);
 const mapBounds = ref<MapBounds | null>(null);
 const panelRef = ref<HTMLDivElement | null>(null);
+const useBonuses = ref(false);
+const userStore = useUserStore();
+const bonusBalance = computed(() => userStore.bonusBalance);
+const formattedBonusBalance = computed(() =>
+  bonusBalance.value.toLocaleString('ru-RU', {
+    style: 'currency',
+    currency: 'RUB',
+    maximumFractionDigits: 0,
+  }),
+);
+const canUseBonuses = computed(() => bonusBalance.value > 0);
 
 watch(
   () => props.open,
   (isOpen) => {
     if (isOpen) {
+      useBonuses.value = false;
       lockBodyScroll(true);
       requestAnimationFrame(() => panelRef.value?.focus());
       loadPickupPoints();
@@ -105,8 +130,15 @@ watch(
   },
 );
 
+watch(bonusBalance, (value) => {
+  if (value <= 0) {
+    useBonuses.value = false;
+  }
+});
+
 onMounted(() => {
   if (props.open) {
+    useBonuses.value = false;
     lockBodyScroll(true);
     loadPickupPoints();
   }
@@ -154,7 +186,7 @@ const handleClose = () => {
 
 const handlePay = () => {
   const point = pickupPoints.value.find((item) => item.id === selectedPointId.value) ?? null;
-  emit('submit', { service: selectedService.value, point });
+  emit('submit', { service: selectedService.value, point, useBonuses: useBonuses.value });
   emit('close');
 };
 
@@ -276,9 +308,9 @@ const selectPoint = (point: PickupPoint) => {
   align-items: center;
   gap: var(--space-3);
 
-  div {
+  > div {
     display: grid;
-    gap: var(--space-1);
+    gap: var(--space-2);
   }
 }
 
@@ -299,6 +331,43 @@ const selectPoint = (point: PickupPoint) => {
 .checkout__hint {
   font-size: var(--fz-caption);
   color: var(--text-secondary);
+}
+
+.checkout__summary-info {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.checkout__bonus {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2);
+  align-items: center;
+  font-weight: 600;
+  cursor: pointer;
+
+  input {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: var(--accent);
+  }
+
+  span {
+    display: block;
+  }
+
+  small {
+    display: block;
+    font-weight: 400;
+    color: var(--text-secondary);
+    font-size: var(--fz-caption);
+  }
+}
+
+.checkout__bonus--disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .modal-enter-from,

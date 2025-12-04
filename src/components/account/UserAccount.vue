@@ -164,6 +164,13 @@
                 </option>
               </select>
             </div>
+            <div v-if="order.bonus" class="orders__bonus">
+              <span>Списано бонусов: <strong>{{ order.bonus.spent }}</strong></span>
+              <span>Начислено: <strong>{{ order.bonus.earned }}</strong></span>
+              <span>
+                К оплате: <strong>{{ formatMoney({ amount: order.bonus.payable, currency: order.total.currency }) }}</strong>
+              </span>
+            </div>
             <div class="orders__footer">
               <span>{{ formatMoney(order.total) }}</span>
               <button type="button" @click="repeatOrder(order.id)">Повторить заказ</button>
@@ -754,6 +761,19 @@ watch(activeTab, (next) => {
   &[data-status='cancelled'] {
     background: rgba(214, 69, 80, 0.15);
     color: var(--danger);
+  }
+}
+
+.orders__bonus {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-2);
+  font-size: var(--fz-caption);
+  color: var(--text-secondary);
+
+  strong {
+    margin-left: var(--space-1);
+    color: var(--text-primary);
   }
 }
 

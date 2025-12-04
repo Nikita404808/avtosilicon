@@ -40,7 +40,11 @@ const closeCheckout = () => {
   uiStore.closeCheckout();
 };
 
-const handleCheckoutSubmit = async (payload: { service: DeliveryServiceId; point: PickupPoint | null }) => {
+const handleCheckoutSubmit = async (payload: {
+  service: DeliveryServiceId;
+  point: PickupPoint | null;
+  useBonuses: boolean;
+}) => {
   const orderPayload = {
     createdAt: new Date().toISOString(),
     number: `TEMP-${Date.now()}`,
@@ -62,19 +66,36 @@ const handleCheckoutSubmit = async (payload: { service: DeliveryServiceId; point
   };
 
   try {
-    const result = await userStore.createOrder(orderPayload);
-    if (result === 'unauthorized') {
+    const result = await userStore.createOrder(orderPayload, payload.useBonuses);
+    if (result.status === 'unauthorized') {
       redirectGuestToLogin('/cart/checkout');
       return;
     }
+    if (result.status !== 'success') {
+      throw new Error('Не удалось оформить заказ.');
+    }
     cartStore.clear();
     closeCheckout();
-    window.alert('Заказ создан! Мы уведомим вас по email.');
+    const summary = [
+      'Заказ создан! Мы уведомим вас по email.',
+      `Списано бонусов: ${result.usedBonus}`,
+      `Начислено бонусов: ${result.bonusEarned}`,
+      `К оплате: ${formatCurrency(result.payable)}`,
+      `Текущий баланс бонусов: ${result.newBonusBalance}`,
+    ].join('\n');
+    window.alert(summary);
   } catch (error) {
     console.error('[Checkout] failed to create order', error);
     window.alert(error instanceof Error ? error.message : 'Не удалось оформить заказ.');
   }
 };
+
+const formatCurrency = (amount: number) =>
+  amount.toLocaleString('ru-RU', {
+    style: 'currency',
+    currency: cartStore.currency,
+    maximumFractionDigits: 0,
+  });
 
 const redirectGuestToLogin = async (redirectPath: string) => {
   authStore.setPostAuthRedirect(redirectPath);

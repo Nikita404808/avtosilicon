@@ -7,6 +7,7 @@ import type {
   PointsHistoryItem,
   OrderLine,
   Product,
+  OrderBonusInfo,
 } from '@/types';
 import productsMock from '@/mocks/products.json';
 import { useCartStore } from './cart';
@@ -47,11 +48,26 @@ type OrdersApiRow = {
   id: string | number;
   order_data: OrderSummary | null;
   created_at: string;
+  bonus_spent?: number | null;
+  bonus_earned?: number | null;
+  payable_amount?: number | null;
 };
 
 type AuthApiSuccess = {
   success: boolean;
 };
+
+type CreateOrderResponse = AuthApiSuccess & {
+  orderId: string | number | null;
+  usedBonus: number;
+  bonusEarned: number;
+  payable: number;
+  newBonusBalance: number;
+};
+
+type CreateOrderResult =
+  | { status: 'unauthorized' }
+  | ({ status: 'success' } & CreateOrderResponse);
 
 type HttpError = Error & { status?: number };
 
@@ -93,7 +109,10 @@ export const useUserStore = defineStore('user', {
   state: createDefaultState,
   getters: {
     isAuthenticated: (state) => Boolean(state.profile?.id),
-    loyaltyPoints: (state) => state.profile?.loyaltyPoints ?? 0,
+    loyaltyPoints: (state) =>
+      state.profile?.bonusBalance ?? state.profile?.loyaltyPoints ?? 0,
+    bonusBalance: (state) =>
+      state.profile?.bonusBalance ?? state.profile?.loyaltyPoints ?? 0,
   },
   actions: {
     reset() {
@@ -102,18 +121,34 @@ export const useUserStore = defineStore('user', {
     setAuthToken(token: string | null) {
       this.authToken = token;
     },
-    setProfileFromAuth(user: { id: string; email: string; name?: string | null; emailVerified?: boolean } | null) {
+    setProfileFromAuth(
+      user:
+        | {
+            id: string;
+            email: string;
+            name?: string | null;
+            emailVerified?: boolean;
+            bonusBalance?: number;
+            bonus_balance?: number;
+          }
+        | null,
+    ) {
       if (!user) {
         this.profile = null;
         return;
       }
+
+      const bonusBalance = normalizeBonusBalance(
+        user.bonusBalance ?? (user as Record<string, unknown>).bonus_balance ?? this.loyaltyPoints,
+      );
 
       this.profile = {
         id: user.id,
         email: user.email,
         name: user.name ?? formatNameFromEmail(user.email),
         phone: this.profile?.phone,
-        loyaltyPoints: this.profile?.loyaltyPoints ?? 0,
+        loyaltyPoints: bonusBalance,
+        bonusBalance,
         emailVerified: user.emailVerified ?? this.profile?.emailVerified ?? false,
       };
     },
@@ -138,7 +173,12 @@ export const useUserStore = defineStore('user', {
           body: JSON.stringify(patch),
           headers: { Authorization: `Bearer ${this.authToken}` },
         });
-        this.profile = updated;
+        this.profile = {
+          ...this.profile!,
+          ...updated,
+          bonusBalance: this.profile?.bonusBalance,
+          loyaltyPoints: this.profile?.loyaltyPoints,
+        };
       } catch (error) {
         logBankError(error);
         this.profile = { ...this.profile!, ...patch };
@@ -291,21 +331,35 @@ export const useUserStore = defineStore('user', {
         this.isLoadingOrders = false;
       }
     },
-    async createOrder(order: Record<string, unknown>) {
-      if (!this.authToken) return 'unauthorized' as const;
+    async createOrder(order: Record<string, unknown>, useBonuses: boolean): Promise<CreateOrderResult> {
+      if (!this.authToken) return { status: 'unauthorized' as const };
       try {
-        await requestAuthApi<AuthApiSuccess>('/api/orders', this.authToken, {
+        const response = await requestAuthApi<CreateOrderResponse>('/api/orders', this.authToken, {
           method: 'POST',
-          body: JSON.stringify({ order }),
+          body: JSON.stringify({ order, useBonuses }),
         });
+        this.applyBonusBalance(response.newBonusBalance);
         await this.fetchOrders();
-        return 'success' as const;
+        return { status: 'success' as const, ...response };
       } catch (error) {
         if (isHttpError(error) && (error.status === 401 || error.status === 403)) {
-          return 'unauthorized' as const;
+          return { status: 'unauthorized' as const };
         }
         throw error;
       }
+    },
+    applyBonusBalance(balance: number | null | undefined) {
+      if (!this.profile) return;
+      const normalized = normalizeBonusBalance(balance);
+      this.profile.bonusBalance = normalized;
+      this.profile.loyaltyPoints = normalized;
+      import('./auth')
+        .then(({ useAuthStore }) => {
+          useAuthStore().patchUser({ bonusBalance: normalized });
+        })
+        .catch((error) => {
+          console.warn('[User] Failed to sync bonus balance to auth store', error);
+        });
     },
     async repeatOrder(payload: RepeatOrderPayload) {
       if (!this.authToken) return;
@@ -337,10 +391,13 @@ export const useUserStore = defineStore('user', {
     redeemPoints(amount: number) {
       if (!this.profile) return;
       if (amount <= 0) return;
-      if (amount > (this.profile.loyaltyPoints ?? 0)) {
+      const currentBalance = this.profile.bonusBalance ?? this.profile.loyaltyPoints ?? 0;
+      if (amount > currentBalance) {
         throw new Error('Недостаточно баллов');
       }
-      this.profile.loyaltyPoints = (this.profile.loyaltyPoints ?? 0) - amount;
+      const nextBalance = normalizeBonusBalance(currentBalance - amount);
+      this.profile.bonusBalance = nextBalance;
+      this.profile.loyaltyPoints = nextBalance;
       this.pointsHistory.unshift({
         id: `redeem-${Date.now()}`,
         type: 'spend',
@@ -351,7 +408,10 @@ export const useUserStore = defineStore('user', {
     },
     accruePoints(amount: number, description: string) {
       if (!this.profile || amount <= 0) return;
-      this.profile.loyaltyPoints = (this.profile.loyaltyPoints ?? 0) + amount;
+      const currentBalance = this.profile.bonusBalance ?? this.profile.loyaltyPoints ?? 0;
+      const nextBalance = normalizeBonusBalance(currentBalance + amount);
+      this.profile.bonusBalance = nextBalance;
+      this.profile.loyaltyPoints = nextBalance;
       this.pointsHistory.unshift({
         id: `earn-${Date.now()}`,
         type: 'earn',
@@ -527,16 +587,56 @@ function isHttpError(error: unknown): error is HttpError {
 
 function normalizeOrderRow(record: OrdersApiRow): OrderSummary {
   const payload = record.order_data ?? {
-    id: record.id,
+    id: String(record.id),
     number: `ORDER-${record.id}`,
     createdAt: record.created_at,
     status: 'processing',
     total: { amount: 0, currency: 'RUB' },
     items: [],
   };
-  return {
+  const bonusFromPayload = (payload as Record<string, unknown> & { bonus?: OrderBonusInfo }).bonus;
+  const normalized: OrderSummary = {
     ...payload,
-    id: payload.id ?? String(record.id),
+    id: String(payload.id ?? record.id),
     createdAt: payload.createdAt ?? record.created_at,
-  } as OrderSummary;
+    total: normalizeMoney(payload.total),
+  };
+
+  const bonus = bonusFromPayload ?? extractBonusFromRow(record);
+  if (bonus) {
+    normalized.bonus = bonus;
+  }
+
+  return normalized;
+}
+
+function extractBonusFromRow(record: OrdersApiRow): OrderBonusInfo | undefined {
+  const spent = Number(record.bonus_spent);
+  const earned = Number(record.bonus_earned);
+  const payable = Number(record.payable_amount);
+
+  const hasBonusData = [spent, earned, payable].some((value) => Number.isFinite(value) && value > 0);
+  if (!hasBonusData) return undefined;
+
+  return {
+    spent: normalizeBonusBalance(spent),
+    earned: normalizeBonusBalance(earned),
+    payable: normalizeBonusBalance(payable),
+  };
+}
+
+function normalizeMoney(value: Money | null | undefined): Money {
+  const amount = Number(value?.amount);
+  return {
+    amount: Number.isFinite(amount) ? amount : 0,
+    currency: 'RUB',
+  };
+}
+
+function normalizeBonusBalance(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  return Math.max(0, Math.floor(numeric));
 }

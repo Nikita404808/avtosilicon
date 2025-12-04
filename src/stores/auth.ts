@@ -6,6 +6,7 @@ type AuthUser = {
   email: string;
   name: string | null;
   emailVerified: boolean;
+  bonusBalance: number;
 };
 
 type AuthState = {
@@ -225,6 +226,8 @@ type AuthResponse = {
   email: string;
   name?: string | null;
   email_verified?: boolean;
+  bonus_balance?: number;
+  bonusBalance?: number;
   token?: string;
 };
 
@@ -273,7 +276,14 @@ function buildAuthUser(payload: AuthResponse): AuthUser {
     email: payload.email,
     name: payload.name ?? formatNameFromEmail(payload.email),
     emailVerified: Boolean(payload.email_verified),
+    bonusBalance: normalizeBonusBalance(payload.bonus_balance ?? payload.bonusBalance),
   };
+}
+
+function normalizeBonusBalance(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.floor(numeric));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

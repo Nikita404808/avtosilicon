@@ -247,7 +247,14 @@ function buildAuthUser(payload) {
         email: payload.email,
         name: payload.name ?? formatNameFromEmail(payload.email),
         emailVerified: Boolean(payload.email_verified),
+        bonusBalance: normalizeBonusBalance(payload.bonus_balance ?? payload.bonusBalance),
     };
+}
+function normalizeBonusBalance(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric))
+        return 0;
+    return Math.max(0, Math.floor(numeric));
 }
 function isRecord(value) {
     return Boolean(value) && typeof value === 'object';
