@@ -19,7 +19,7 @@ type AuthState = {
 };
 
 const SESSION_STORAGE_KEY = 'auth_token';
-const AUTH_API_BASE = import.meta.env.VITE_AUTH_API_BASE ?? 'http://31.31.207.27:3000';
+const AUTH_API_BASE = import.meta.env.VITE_AUTH_API_BASE ?? 'http://79.174.85.129:3000';
 const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY ?? '';
 
 export const useAuthStore = defineStore('auth', {

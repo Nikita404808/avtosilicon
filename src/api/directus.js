@@ -1,4 +1,4 @@
-const DEFAULT_DIRECTUS_URL = 'http://31.31.207.27:8055';
+const DEFAULT_DIRECTUS_URL = 'http://79.174.85.129:8055';
 const PRODUCT_FIELDS = [
     '*',
     'car_model.id',

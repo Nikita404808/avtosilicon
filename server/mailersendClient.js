@@ -15,7 +15,7 @@ const mailerSend = new MailerSend({ apiKey });
 const sentFrom = new Sender(fromEmail, fromName);
 
 const frontendBaseUrl =
-  process.env.FRONTEND_BASE_URL?.replace(/\/$/, '') || 'http://31.31.207.27:5173';
+  process.env.FRONTEND_BASE_URL?.replace(/\/$/, '') || 'http://79.174.85.129:5173';
 
 export async function sendVerificationEmail(toEmail, code) {
   const recipients = [new Recipient(toEmail, toEmail)];

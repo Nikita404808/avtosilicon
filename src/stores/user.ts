@@ -13,7 +13,7 @@ import productsMock from '@/mocks/products.json';
 import { useCartStore } from './cart';
 
 const fallbackProducts = (productsMock as Array<Record<string, unknown>>).map(normalizeMockProduct);
-const AUTH_API_BASE = import.meta.env.VITE_AUTH_API_BASE ?? 'http://31.31.207.27:3000';
+const AUTH_API_BASE = import.meta.env.VITE_AUTH_API_BASE ?? 'http://79.174.85.129:3000';
 
 type UserState = {
   profile: UserProfile | null;

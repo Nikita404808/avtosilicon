@@ -1,6 +1,6 @@
 import type { NewsItem } from '@/types/news';
 
-const DEFAULT_DIRECTUS_URL = 'http://31.31.207.27:8055';
+const DEFAULT_DIRECTUS_URL = 'http://79.174.85.129:8055';
 
 type DirectusFileField = string | { id?: string | number | null } | null;
 

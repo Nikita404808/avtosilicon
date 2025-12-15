@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import productsMock from '@/mocks/products.json';
 import { useCartStore } from './cart';
 const fallbackProducts = productsMock.map(normalizeMockProduct);
-const AUTH_API_BASE = import.meta.env.VITE_AUTH_API_BASE ?? 'http://31.31.207.27:3000';
+const AUTH_API_BASE = import.meta.env.VITE_AUTH_API_BASE ?? 'http://79.174.85.129:3000';
 const BANK_API_BASE = import.meta.env.VITE_BANK_API_BASE ?? '';
 const createDefaultState = () => ({
     profile: null,

@@ -18,7 +18,7 @@ const pool = new Pool({
 });
 
 const PORT = Number(process.env.PORT) || 3000;
-const ALLOWED_ORIGIN = process.env.CORS_ORIGIN || 'http://31.31.207.27:5173';
+const ALLOWED_ORIGIN = process.env.CORS_ORIGIN || 'http://79.174.85.129:5173';
 const emailVerifyTtlMin = Number(process.env.EMAIL_VERIFY_TTL_MIN ?? 15);
 const passwordResetTtlMin = Number(process.env.PASSWORD_RESET_TTL_MIN ?? 30);
 const emailVerifyTtlMs = minutesToMs(emailVerifyTtlMin);
