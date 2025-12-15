@@ -3,7 +3,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
-import { sendVerificationEmail, sendPasswordResetEmail } from './mailersendClient.js';
+import { sendVerificationEmail, sendPasswordResetEmail } from './emailClient.mjs';
 
 const requiredEnv = ['DATABASE_URL'];
 const missingEnv = requiredEnv.filter((key) => !process.env[key]);
