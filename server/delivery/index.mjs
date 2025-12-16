@@ -26,6 +26,16 @@ export async function calculate(options) {
   return handler.calculate({ ...options, provider, type });
 }
 
+export async function listTariffs(options) {
+  const provider = normalizeProvider(options?.provider);
+  const type = normalizeType(provider, options?.type);
+  const handler = providerMap[provider];
+  if (!handler?.listTariffs) {
+    throw new Error(`Провайдер ${provider} не поддерживает список тарифов.`);
+  }
+  return handler.listTariffs({ ...options, provider, type });
+}
+
 function normalizeProvider(provider) {
   const key = typeof provider === 'string' ? provider.toLowerCase() : '';
   if (!isProviderAllowed(key)) {

@@ -4,7 +4,11 @@ import crypto from 'node:crypto';
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
 import { sendVerificationEmail, sendPasswordResetEmail } from './emailClient.mjs';
-import { searchPvz as searchDeliveryPvz, calculate as calculateDelivery } from './delivery/index.mjs';
+import {
+  searchPvz as searchDeliveryPvz,
+  calculate as calculateDelivery,
+  listTariffs as listDeliveryTariffs,
+} from './delivery/index.mjs';
 
 const requiredEnv = ['DATABASE_URL'];
 const missingEnv = requiredEnv.filter((key) => !process.env[key]);
@@ -108,6 +112,11 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'POST' && requestUrl.pathname === '/api/delivery/calculate') {
     await handleDeliveryCalculate(req, res);
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/api/delivery/tariffs') {
+    await handleDeliveryTariffs(req, res);
     return;
   }
 
@@ -493,7 +502,41 @@ async function handleDeliveryCalculate(req, res) {
       sendJson(res, 400, { message: error.message });
       return;
     }
-    handleServerError(res, error);
+    sendJson(res, 500, { message: 'Не удалось рассчитать доставку.', error: String(error?.message ?? error) });
+  }
+}
+
+async function handleDeliveryTariffs(req, res) {
+  try {
+    const payload = await readJsonBody(req);
+    const { provider, type, total_weight, pickup_point_id, address } = payload ?? {};
+
+    if (!provider || !type) {
+      sendJson(res, 400, { message: 'Провайдер и тип доставки обязательны.' });
+      return;
+    }
+
+    const weight = Number(total_weight);
+    if (!Number.isFinite(weight) || weight <= 0) {
+      sendJson(res, 400, { message: 'total_weight должен быть больше нуля.' });
+      return;
+    }
+
+    const tariffs = await listDeliveryTariffs({
+      provider,
+      type,
+      total_weight: weight,
+      pickup_point_id,
+      address,
+    });
+
+    sendJson(res, 200, { tariffs });
+  } catch (error) {
+    if (isClientError(error)) {
+      sendJson(res, 400, { message: error.message });
+      return;
+    }
+    sendJson(res, 500, { message: 'Не удалось получить список тарифов.', error: String(error?.message ?? error) });
   }
 }
 
