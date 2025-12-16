@@ -242,7 +242,7 @@ const submitReset = async () => {
   isResetLoading.value = true;
   try {
     await authStore.requestPasswordReset(resetEmail.value);
-    resetMessage.value = 'Если такой email существует, мы отправили инструкцию по сбросу пароля.';
+    resetMessage.value = 'Ссылка для сброса пароля отправлена на вашу почту.';
     setTimeout(() => {
       resetMessage.value = '';
       closeReset();

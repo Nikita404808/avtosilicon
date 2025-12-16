@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
 import { sendVerificationEmail, sendPasswordResetEmail } from './emailClient.mjs';
+import { searchPvz as searchDeliveryPvz, calculate as calculateDelivery } from './delivery/index.mjs';
 
 const requiredEnv = ['DATABASE_URL'];
 const missingEnv = requiredEnv.filter((key) => !process.env[key]);
@@ -29,6 +30,16 @@ const sessions = new Map();
 const verifyThrottleMap = new Map();
 const resetThrottleMap = new Map();
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
+
+function generateVerificationCode(len = 5) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const bytes = crypto.randomBytes(len);
+  let out = '';
+  for (let i = 0; i < len; i += 1) {
+    out += alphabet[bytes[i] % alphabet.length];
+  }
+  return out;
+}
 
 const server = http.createServer(async (req, res) => {
   setCors(res);
@@ -87,6 +98,16 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'POST' && requestUrl.pathname === '/api/auth/reset-password') {
     await handleResetPassword(req, res);
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/api/delivery/pvz/search') {
+    await handleDeliveryPvzSearch(req, res);
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/api/delivery/calculate') {
+    await handleDeliveryCalculate(req, res);
     return;
   }
 
@@ -227,7 +248,7 @@ async function handleSendVerifyCode(req, res) {
       return;
     }
 
-    const verifyToken = crypto.randomBytes(32).toString('hex');
+    const verifyToken = generateVerificationCode(5);
     const expiresAt = new Date(Date.now() + emailVerifyTtlMs);
 
     await pool.query(
@@ -394,6 +415,88 @@ async function handleResetPassword(req, res) {
   }
 }
 
+async function handleDeliveryPvzSearch(req, res) {
+  try {
+    const payload = await readJsonBody(req);
+    const provider = payload?.provider;
+    if (!provider) {
+      sendJson(res, 400, { message: 'Провайдер обязателен.' });
+      return;
+    }
+
+    const points = await searchDeliveryPvz({
+      provider,
+      query: payload?.query,
+      city: payload?.city,
+      lat: payload?.lat,
+      lon: payload?.lon,
+    });
+
+    sendJson(res, 200, { points });
+  } catch (error) {
+    if (isClientError(error)) {
+      sendJson(res, 400, { message: error.message });
+      return;
+    }
+    handleServerError(res, error);
+  }
+}
+
+async function handleDeliveryCalculate(req, res) {
+  try {
+    const payload = await readJsonBody(req);
+    const { provider, type, total_weight, pickup_point_id, address } = payload ?? {};
+
+    if (!provider || !type) {
+      sendJson(res, 400, { message: 'Провайдер и тип доставки обязательны.' });
+      return;
+    }
+    const weight = Number(total_weight);
+    if (!Number.isFinite(weight) || weight <= 0) {
+      sendJson(res, 400, { message: 'total_weight должен быть больше нуля.' });
+      return;
+    }
+
+    if (type === 'pvz') {
+      if (!pickup_point_id) {
+        sendJson(res, 400, { message: 'pickup_point_id обязателен для ПВЗ.' });
+        return;
+      }
+      if (address) {
+        sendJson(res, 400, { message: 'address не используется для ПВЗ.' });
+        return;
+      }
+    }
+
+    if (type === 'door') {
+      if (!address) {
+        sendJson(res, 400, { message: 'address обязателен для доставки до двери.' });
+        return;
+      }
+      if (pickup_point_id) {
+        sendJson(res, 400, { message: 'pickup_point_id не используется для доставки до двери.' });
+        return;
+      }
+    }
+
+    const quote = await calculateDelivery({
+      provider,
+      type,
+      total_weight: weight,
+      pickup_point_id,
+      address,
+    });
+
+    sendJson(res, 200, quote);
+  } catch (error) {
+    if (isClientError(error)) {
+      sendJson(res, 400, { message: error.message });
+      return;
+    }
+    handleServerError(res, error);
+  }
+}
+
 async function handleUpdateName(req, res) {
   try {
     const authUser = await getAuthenticatedUser(req, res);
@@ -432,7 +535,26 @@ async function handleCreateOrder(req, res) {
       return;
     }
 
-    const orderTotal = calculateOrderTotal(order);
+    const totalWeight = extractTotalWeight(order);
+    if (totalWeight === null) {
+      sendJson(res, 400, { message: 'Вес корзины обязателен и должен быть больше нуля.' });
+      return;
+    }
+
+    const deliveryPrice = extractDeliveryPrice(order);
+    if (deliveryPrice === null) {
+      sendJson(res, 400, { message: 'delivery_price обязателен и должен быть неотрицательным числом.' });
+      return;
+    }
+
+    const deliveryInfo = validateDelivery(order?.delivery);
+    if (!deliveryInfo.ok) {
+      sendJson(res, 400, { message: deliveryInfo.error });
+      return;
+    }
+
+    const itemsTotal = calculateOrderTotal(order);
+    const fullOrderTotal = itemsTotal + deliveryPrice;
     const client = await pool.connect();
 
     try {
@@ -451,7 +573,7 @@ async function handleCreateOrder(req, res) {
 
       const currentBalance = Number(balanceResult.rows[0].bonus_balance) || 0;
       const { usedBonus, bonusEarned, payable, newBalance } = calculateBonuses({
-        orderTotal,
+        orderTotal: fullOrderTotal,
         bonusBalance: currentBalance,
         useBonuses,
       });
@@ -460,9 +582,9 @@ async function handleCreateOrder(req, res) {
         usedBonus,
         bonusEarned,
         payable,
-        orderTotal,
+        orderTotal: fullOrderTotal,
         newBalance,
-      });
+      }, { totalWeight, deliveryPrice, delivery: deliveryInfo.value, itemsTotal });
 
       const insertResult = await client.query(
         `
@@ -622,7 +744,11 @@ function extractToken(headerValue) {
 }
 
 function isClientError(error) {
-  return error instanceof Error && /Невалидный JSON/.test(error.message);
+  return (
+    error instanceof Error &&
+    (/Невалидный JSON/.test(error.message) ||
+      /обязател|недопустим|не удалось/i.test(error.message))
+  );
 }
 
 function minutesToMs(value) {
@@ -671,6 +797,27 @@ function calculateOrderTotal(order) {
   return 0;
 }
 
+function extractDeliveryPrice(order) {
+  if (!order || typeof order !== 'object') return null;
+  const raw = order.delivery_price ?? order.deliveryPrice ?? order.delivery?.price;
+  const numeric = typeof raw === 'string' ? Number.parseFloat(raw) : Number(raw ?? NaN);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return null;
+  }
+  return numeric;
+}
+
+function extractTotalWeight(order) {
+  if (!order || typeof order !== 'object') return null;
+  const rawWeight = order.total_weight ?? order.totalWeight;
+  const numeric =
+    typeof rawWeight === 'string' ? Number.parseFloat(rawWeight) : Number(rawWeight ?? NaN);
+  if (!Number.isFinite(numeric)) return null;
+  const normalized = Number(numeric);
+  if (normalized <= 0) return null;
+  return normalized;
+}
+
 function calculateBonuses({ orderTotal, bonusBalance, useBonuses }) {
   const safeOrderTotal = Math.max(0, Math.floor(Number(orderTotal) || 0));
   const safeBalance = Math.max(0, Math.floor(Number(bonusBalance) || 0));
@@ -684,12 +831,24 @@ function calculateBonuses({ orderTotal, bonusBalance, useBonuses }) {
   return { usedBonus, bonusEarned, payable, newBalance };
 }
 
-function enrichOrderData(order, bonusPayload) {
+function enrichOrderData(order, bonusPayload, meta = {}) {
   const existing = order && typeof order === 'object' ? order : {};
-  const totalAmount = Number(bonusPayload?.orderTotal) || calculateOrderTotal(order);
-  return {
+  const totalAmount = Number(meta?.itemsTotal ?? calculateOrderTotal(order));
+  const totalWeight =
+    typeof meta?.totalWeight === 'number' && Number.isFinite(meta.totalWeight)
+      ? meta.totalWeight
+      : extractTotalWeight(order);
+  const deliveryPrice =
+    typeof meta?.deliveryPrice === 'number' && Number.isFinite(meta.deliveryPrice)
+      ? meta.deliveryPrice
+      : extractDeliveryPrice(order);
+
+  const payload = {
     ...existing,
     total: order?.total ?? { amount: totalAmount, currency: 'RUB' },
+    delivery_price: deliveryPrice ?? 0,
+    delivery_status: existing.delivery_status ?? 'created',
+    delivery: meta?.delivery ?? existing.delivery,
     bonus: {
       spent: bonusPayload.usedBonus,
       earned: bonusPayload.bonusEarned,
@@ -698,4 +857,49 @@ function enrichOrderData(order, bonusPayload) {
       orderTotal: bonusPayload.orderTotal,
     },
   };
+
+  if (typeof totalWeight === 'number' && Number.isFinite(totalWeight)) {
+    payload.total_weight = totalWeight;
+  }
+
+  if (deliveryPrice !== undefined && deliveryPrice !== null) {
+    payload.delivery_price = deliveryPrice;
+  }
+
+  return payload;
+}
+
+function validateDelivery(rawDelivery) {
+  const delivery = rawDelivery && typeof rawDelivery === 'object' ? rawDelivery : null;
+  if (!delivery) {
+    return { ok: false, error: 'delivery обязателен.' };
+  }
+
+  const provider = typeof delivery.provider === 'string' ? delivery.provider : '';
+  const type = typeof delivery.type === 'string' ? delivery.type : '';
+  if (!provider || !type) {
+    return { ok: false, error: 'provider и type в delivery обязательны.' };
+  }
+
+  const allowedProviders = ['cdek', 'ruspost'];
+  if (!allowedProviders.includes(provider)) {
+    return { ok: false, error: 'Недопустимый провайдер доставки.' };
+  }
+
+  const allowedTypes = ['pvz', 'door'];
+  if (!allowedTypes.includes(type)) {
+    return { ok: false, error: 'Недопустимый тип доставки.' };
+  }
+
+  if (type === 'pvz' && !delivery.pickup_point_id) {
+    return { ok: false, error: 'pickup_point_id обязателен для ПВЗ.' };
+  }
+  if (type === 'door') {
+    const addr = delivery.address;
+    if (!addr || typeof addr !== 'object') {
+      return { ok: false, error: 'address обязателен для доставки до двери.' };
+    }
+  }
+
+  return { ok: true, value: delivery };
 }

@@ -52,7 +52,7 @@ const columns = [
     title: 'Маркетплейсы',
     links: [
       { label: 'OZON', href: 'https://www.ozon.ru/seller/novodel-885208/?miniapp=seller_885208', internal: false },
-      { label: 'Wildberries', href: 'https://www.wildberries.ru/', internal: false },
+      { label: 'Wildberries', href: 'https://www.wildberries.ru/seller/446137', internal: false },
       { label: 'Яндекс Маркет', href: 'https://market.yandex.ru/cc/7uTH64', internal: false },
       { label: 'Avito', href: 'https://www.avito.ru/user/17fc1256e10a89600c7ac7975827b15d/profile?src=sharing', internal: false },
     ],

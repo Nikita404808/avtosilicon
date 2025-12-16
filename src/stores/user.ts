@@ -351,11 +351,13 @@ export const useUserStore = defineStore('user', {
       if (order) {
         order.items.forEach((line) => {
           const price = toMoney(line.price?.amount ?? 0);
+          const weight = resolveLineWeight(line);
           cartStore.addItem({
             productId: String(line.productId),
             title: line.title,
             quantity: line.quantity,
             price,
+            weight,
           });
         });
         cartStore.toggleCart(true);
@@ -423,6 +425,23 @@ function findProduct(productId: string) {
   );
 }
 
+function resolveLineWeight(line: Partial<OrderLine>) {
+  const weightFromLine = normalizeWeight((line as OrderLine).weight);
+  if (weightFromLine > 0) {
+    return weightFromLine;
+  }
+
+  const product = findProduct(String(line.productId));
+  if (product) {
+    const productWeight = normalizeWeight(product.weight);
+    if (productWeight > 0) {
+      return productWeight;
+    }
+  }
+
+  return 0;
+}
+
 function buildFallbackOrderItems(items: { productId: string; quantity: number }[]): OrderLine[] {
   return items
     .map((line) => {
@@ -433,6 +452,7 @@ function buildFallbackOrderItems(items: { productId: string; quantity: number }[
         title: product.title,
         quantity: line.quantity,
         price: toMoney(product.price),
+        weight: normalizeWeight(product.weight),
       };
     })
     .filter(Boolean) as OrderLine[];
@@ -443,6 +463,14 @@ function toMoney(amount: number | null | undefined): Money {
     return { amount, currency: 'RUB' };
   }
   return { amount: 0, currency: 'RUB' };
+}
+
+function normalizeWeight(value: unknown): number {
+  const numeric = typeof value === 'string' ? Number.parseFloat(value) : Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  return Math.max(0, numeric);
 }
 
 function normalizeMockProduct(raw: Record<string, unknown>, index: number): Product {
@@ -588,6 +616,23 @@ function normalizeOrderRow(record: OrdersApiRow): OrderSummary {
     normalized.bonus = bonus;
   }
 
+  const totalWeight = normalizeWeight(
+    (payload as Record<string, unknown>).total_weight ??
+      (payload as Record<string, unknown>).totalWeight,
+  );
+  if (totalWeight > 0) {
+    normalized.totalWeight = totalWeight;
+    normalized.total_weight = totalWeight;
+  }
+
+  const deliveryPrice = normalizeDeliveryPrice(
+    (payload as Record<string, unknown>).delivery_price ??
+      (payload as Record<string, unknown>).deliveryPrice,
+  );
+  if (deliveryPrice >= 0) {
+    normalized.delivery_price = deliveryPrice;
+  }
+
   return normalized;
 }
 
@@ -620,4 +665,12 @@ function normalizeBonusBalance(value: unknown): number {
     return 0;
   }
   return Math.max(0, Math.floor(numeric));
+}
+
+function normalizeDeliveryPrice(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return -1;
+  }
+  return numeric;
 }

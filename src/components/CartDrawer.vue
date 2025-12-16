@@ -22,6 +22,7 @@
             <div class="drawer__line-info">
               <h3>{{ line.title || `Товар ${line.productId}` }}</h3>
               <p>{{ formatMoney(line.price) }}</p>
+              <p class="drawer__line-weight">Вес: {{ formatWeight(line.weight, line.quantity) }}</p>
             </div>
             <div class="drawer__line-actions">
               <label class="sr-only" :for="`qty-${line.productId}`">Количество</label>
@@ -41,9 +42,15 @@
         </section>
 
         <footer class="drawer__footer">
-          <div>
-            <span>Итого</span>
-            <strong>{{ formattedTotal }}</strong>
+          <div class="drawer__totals">
+            <div>
+              <span>Итого</span>
+              <strong>{{ formattedTotal }}</strong>
+            </div>
+            <div class="drawer__weight">
+              <span>Вес</span>
+              <strong>{{ formattedTotalWeight }}</strong>
+            </div>
           </div>
           <button type="button" class="drawer__checkout" @click="proceedToCheckout" :disabled="!cartStore.hasItems">
             Оформить заказ
@@ -71,6 +78,13 @@ const formattedTotal = computed(() =>
     maximumFractionDigits: 0,
   }),
 );
+
+const formattedTotalWeight = computed(() => {
+  if (!cartStore.totalWeight) return '—';
+  return `${cartStore.totalWeight.toLocaleString('ru-RU', {
+    maximumFractionDigits: 3,
+  })} кг`;
+});
 
 const lockBodyScroll = (shouldLock: boolean) => {
   document.body.style.overflow = shouldLock ? 'hidden' : '';
@@ -107,6 +121,14 @@ const formatMoney = ({ amount, currency }: { amount: number; currency: string })
     currency,
     maximumFractionDigits: 0,
   });
+
+const formatWeight = (unitWeight: number, quantity: number) => {
+  const weight = Number.isFinite(unitWeight) ? Math.max(0, unitWeight) : 0;
+  const qty = Math.max(1, quantity);
+  const total = weight * qty;
+  if (!total) return '—';
+  return `${total.toLocaleString('ru-RU', { maximumFractionDigits: 3 })} кг`;
+};
 
 const proceedToCheckout = () => {
   if (!cartStore.hasItems) return;
@@ -207,6 +229,10 @@ const watchIsOpen = (isMounted: boolean) => {
   gap: var(--space-2);
 }
 
+.drawer__line-weight {
+  color: var(--text-secondary);
+}
+
 .drawer__line-actions {
   display: flex;
   gap: var(--space-2);
@@ -239,7 +265,12 @@ const watchIsOpen = (isMounted: boolean) => {
   align-items: center;
   gap: var(--space-4);
 
-  > div {
+  .drawer__totals {
+    display: grid;
+    gap: var(--space-2);
+  }
+
+  .drawer__totals > div {
     display: flex;
     align-items: baseline;
     gap: var(--space-2);

@@ -23,7 +23,7 @@ import { useCartStore } from '@/stores/cart';
 import { useUserStore } from '@/stores/user';
 import { useAuthStore } from '@/stores/auth';
 import { useUiStore } from '@/stores/ui';
-import type { DeliveryServiceId, PickupPoint } from '@/types/pickup';
+import type { DeliveryServiceId } from '@/types/pickup';
 
 const cartStore = useCartStore();
 const userStore = useUserStore();
@@ -41,10 +41,27 @@ const closeCheckout = () => {
 };
 
 const handleCheckoutSubmit = async (payload: {
-  service: DeliveryServiceId;
-  point: PickupPoint | null;
+  delivery: {
+    provider: DeliveryServiceId;
+    type: 'pvz' | 'door';
+    pickup_point_id?: string;
+    pickup_point_address?: string;
+    address?: Record<string, unknown>;
+    recipient: Record<string, unknown>;
+    tariff_code?: string | number | null;
+    delivery_currency?: string;
+    delivery_eta?: string | null;
+    provider_metadata?: Record<string, unknown>;
+    comment?: string;
+  };
+  deliveryPrice: number;
   useBonuses: boolean;
 }) => {
+  if (cartStore.totalWeight <= 0) {
+    window.alert('Не удалось рассчитать вес корзины. Попробуйте обновить страницу или обратитесь в поддержку.');
+    return;
+  }
+
   const orderPayload = {
     createdAt: new Date().toISOString(),
     number: `TEMP-${Date.now()}`,
@@ -53,15 +70,19 @@ const handleCheckoutSubmit = async (payload: {
       amount: cartStore.totalAmount,
       currency: cartStore.currency,
     },
+    total_weight: cartStore.totalWeight,
+    delivery_price: payload.deliveryPrice,
     items: cartStore.lines.map((line) => ({
       productId: line.productId,
       quantity: line.quantity,
       price: line.price,
-      title: `Товар ${line.productId}`,
+      weight: line.weight,
+      title: line.title || `Товар ${line.productId}`,
     })),
     delivery: {
-      service: payload.service,
-      point: payload.point,
+      ...payload.delivery,
+      price: payload.deliveryPrice,
+      currency: payload.delivery.delivery_currency ?? cartStore.currency,
     },
   };
 

@@ -5,7 +5,9 @@ export async function getPickupPoints(provider, bounds) {
 }
 function isPointInBounds(point, bounds) {
     const { southWest, northEast } = bounds;
-    const withinLatitude = point.lat >= southWest.lat && point.lat <= northEast.lat;
-    const withinLongitude = point.lng >= southWest.lng && point.lng <= northEast.lng;
+    const lat = point.lat ?? 0;
+    const lng = point.lng ?? point.lon ?? 0;
+    const withinLatitude = lat >= southWest.lat && lat <= northEast.lat;
+    const withinLongitude = lng >= southWest.lng && lng <= northEast.lng;
     return withinLatitude && withinLongitude;
 }

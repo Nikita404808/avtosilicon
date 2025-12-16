@@ -3,12 +3,15 @@ export type Money = {
   currency: 'RUB';
 };
 
-export type OrderLine = {
+export type CartItem = {
   productId: string;
   title: string;
   quantity: number;
   price: Money;
+  weight: number;
 };
+
+export type OrderLine = CartItem;
 
 export type { Product, CarModelRef, PartTypeRef } from '@/api/directus';
 export type { NewsItem } from './news';
@@ -51,6 +54,10 @@ export type OrderSummary = {
   status: 'delivered' | 'processing' | 'cancelled';
   total: Money;
   items: OrderLine[];
+  totalWeight?: number;
+  total_weight?: number;
+  delivery_price?: number;
+  delivery?: Record<string, unknown>;
   shippingAddressId?: string;
   bonus?: OrderBonusInfo;
 };
@@ -70,3 +77,13 @@ export type OrderBonusInfo = {
   balanceAfter?: number;
   orderTotal?: number;
 };
+
+export type {
+  DeliveryAddress,
+  DeliveryRecipient,
+  DeliveryType,
+  DeliveryPvz,
+  DeliveryDetails,
+  DeliveryQuote,
+  DeliveryCalculationPayload,
+} from './delivery';

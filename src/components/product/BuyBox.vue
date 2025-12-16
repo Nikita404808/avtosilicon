@@ -53,6 +53,12 @@ const formattedPrice = computed(() => {
   return 'Цена по запросу';
 });
 
+const normalizeWeight = (rawWeight: unknown) => {
+  const numeric = typeof rawWeight === 'string' ? Number.parseFloat(rawWeight) : Number(rawWeight);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, numeric);
+};
+
 const increment = () => {
   quantity.value += 1;
 };
@@ -70,6 +76,7 @@ const addToCart = () => {
       amount: props.product.price ?? 0,
       currency: 'RUB',
     },
+    weight: normalizeWeight(props.product.weight),
   });
   cartStore.toggleCart(true);
 };

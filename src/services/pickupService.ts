@@ -6,12 +6,16 @@ export async function getPickupPoints(
   bounds: MapBounds,
 ): Promise<PickupPoint[]> {
   await new Promise((resolve) => setTimeout(resolve, 300));
-  return mockPickupPoints.filter((point) => point.provider === provider && isPointInBounds(point, bounds));
+  return mockPickupPoints.filter(
+    (point) => point.provider === provider && isPointInBounds(point, bounds),
+  );
 }
 
 function isPointInBounds(point: PickupPoint, bounds: MapBounds) {
   const { southWest, northEast } = bounds;
-  const withinLatitude = point.lat >= southWest.lat && point.lat <= northEast.lat;
-  const withinLongitude = point.lng >= southWest.lng && point.lng <= northEast.lng;
+  const lat = point.lat ?? 0;
+  const lng = (point as PickupPoint & { lon?: number }).lng ?? point.lon ?? 0;
+  const withinLatitude = lat >= southWest.lat && lat <= northEast.lat;
+  const withinLongitude = lng >= southWest.lng && lng <= northEast.lng;
   return withinLatitude && withinLongitude;
 }

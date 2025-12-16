@@ -283,11 +283,13 @@ export const useUserStore = defineStore('user', {
             if (order) {
                 order.items.forEach((line) => {
                     const price = toMoney(line.price?.amount ?? 0);
+                    const weight = resolveLineWeight(line);
                     cartStore.addItem({
                         productId: String(line.productId),
                         title: line.title,
                         quantity: line.quantity,
                         price,
+                        weight,
                     });
                 });
                 cartStore.toggleCart(true);
@@ -351,6 +353,20 @@ function logAuthError(error) {
 function findProduct(productId) {
     return fallbackProducts.find((product) => product.legacyId === productId || String(product.id) === productId);
 }
+function resolveLineWeight(line) {
+    const weightFromLine = normalizeWeight(line.weight);
+    if (weightFromLine > 0) {
+        return weightFromLine;
+    }
+    const product = findProduct(String(line.productId));
+    if (product) {
+        const productWeight = normalizeWeight(product.weight);
+        if (productWeight > 0) {
+            return productWeight;
+        }
+    }
+    return 0;
+}
 function buildFallbackOrderItems(items) {
     return items
         .map((line) => {
@@ -362,6 +378,7 @@ function buildFallbackOrderItems(items) {
             title: product.title,
             quantity: line.quantity,
             price: toMoney(product.price),
+            weight: normalizeWeight(product.weight),
         };
     })
         .filter(Boolean);
@@ -371,6 +388,13 @@ function toMoney(amount) {
         return { amount, currency: 'RUB' };
     }
     return { amount: 0, currency: 'RUB' };
+}
+function normalizeWeight(value) {
+    const numeric = typeof value === 'string' ? Number.parseFloat(value) : Number(value);
+    if (!Number.isFinite(numeric)) {
+        return 0;
+    }
+    return Math.max(0, numeric);
 }
 function normalizeMockProduct(raw, index) {
     const rawId = raw.id;
@@ -499,6 +523,17 @@ function normalizeOrderRow(record) {
     if (bonus) {
         normalized.bonus = bonus;
     }
+    const totalWeight = normalizeWeight(payload.total_weight ??
+        payload.totalWeight);
+    if (totalWeight > 0) {
+        normalized.totalWeight = totalWeight;
+        normalized.total_weight = totalWeight;
+    }
+    const deliveryPrice = normalizeDeliveryPrice(payload.delivery_price ??
+        payload.deliveryPrice);
+    if (deliveryPrice >= 0) {
+        normalized.delivery_price = deliveryPrice;
+    }
     return normalized;
 }
 function extractBonusFromRow(record) {
@@ -527,4 +562,11 @@ function normalizeBonusBalance(value) {
         return 0;
     }
     return Math.max(0, Math.floor(numeric));
+}
+function normalizeDeliveryPrice(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric < 0) {
+        return -1;
+    }
+    return numeric;
 }
