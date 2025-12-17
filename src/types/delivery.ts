@@ -44,10 +44,11 @@ export type DeliveryPvz = {
   id: string;
   name: string;
   address: string;
+  city_code?: string;
   lat?: number;
   lon?: number;
   lng?: number;
-  provider: DeliveryServiceId;
+  provider?: DeliveryServiceId;
 };
 
 export type DeliveryCalculateResponse = DeliveryQuote;

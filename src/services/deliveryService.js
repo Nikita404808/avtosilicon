@@ -25,3 +25,9 @@ export async function calculateDelivery(body) {
         body: JSON.stringify(body),
     });
 }
+export async function tariffs(body) {
+    return request('/api/delivery/tariffs', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+}

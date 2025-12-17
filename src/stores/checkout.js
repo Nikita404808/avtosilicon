@@ -8,6 +8,7 @@ const defaultDraft = () => ({
     pvzResults: [],
     pickup_point_id: null,
     pickup_point_address: null,
+    provider_metadata: {},
     address: {
         region: '',
         city: '',
@@ -87,6 +88,7 @@ export const useCheckoutStore = defineStore('checkout', {
         setProvider(provider) {
             this.deliveryDraft.provider = provider;
             this.clearPvzSelection();
+            this.deliveryDraft.provider_metadata = {};
             this.deliveryDraft.pvzResults = [];
             this.pvzError = '';
             this.resetQuote();
@@ -96,6 +98,7 @@ export const useCheckoutStore = defineStore('checkout', {
             this.deliveryDraft.type = type;
             this.deliveryDraft.pickup_point_id = null;
             this.deliveryDraft.pickup_point_address = null;
+            this.deliveryDraft.provider_metadata = {};
             this.deliveryDraft.pvzResults = [];
             this.pvzError = '';
             this.resetQuote();
@@ -124,12 +127,17 @@ export const useCheckoutStore = defineStore('checkout', {
         selectPvz(point) {
             this.deliveryDraft.pickup_point_id = point?.id ?? null;
             this.deliveryDraft.pickup_point_address = point?.address ?? null;
+            this.deliveryDraft.provider_metadata = {
+                ...(this.deliveryDraft.provider_metadata ?? {}),
+                ...(point?.city_code ? { to_city_code: point.city_code } : {}),
+            };
             this.resetQuote();
             this.persistDraft();
         },
         clearPvzSelection() {
             this.deliveryDraft.pickup_point_id = null;
             this.deliveryDraft.pickup_point_address = null;
+            this.deliveryDraft.provider_metadata = {};
         },
         updateAddressField(field, value) {
             this.deliveryDraft.address[field] = value;

@@ -32,8 +32,23 @@ export async function calculateDelivery(body: {
   total_weight: number;
   pickup_point_id?: string | null;
   address?: Record<string, unknown>;
+  provider_metadata?: Record<string, unknown>;
 }) {
   return request<DeliveryCalculateResponse>('/api/delivery/calculate', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function tariffs(body: {
+  provider: string;
+  type: string;
+  total_weight: number;
+  pickup_point_id?: string | null;
+  address?: Record<string, unknown>;
+  provider_metadata?: Record<string, unknown>;
+}) {
+  return request<{ tariffs: unknown[] }>('/api/delivery/tariffs', {
     method: 'POST',
     body: JSON.stringify(body),
   });

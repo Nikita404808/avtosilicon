@@ -408,6 +408,9 @@ async function handleCalculate() {
       pickup_point_id:
         deliveryDraft.value.type === 'pvz' ? deliveryDraft.value.pickup_point_id : undefined,
       address: deliveryDraft.value.type === 'door' ? deliveryDraft.value.address : undefined,
+      provider_metadata: Object.keys(deliveryDraft.value.provider_metadata ?? {}).length
+        ? deliveryDraft.value.provider_metadata
+        : undefined,
     };
     const quote = await calculateDelivery(payload);
     checkoutStore.setDeliveryQuote(quote);
@@ -427,6 +430,10 @@ const handleClose = () => {
 
 const handlePay = () => {
   if (deliveryPrice.value === null || !canSubmit.value) return;
+  const mergedProviderMetadata = {
+    ...(deliveryDraft.value.provider_metadata ?? {}),
+    ...((deliveryQuote.value.provider_metadata ?? {}) as Record<string, unknown>),
+  };
   const deliveryPayload = {
     provider: deliveryDraft.value.provider,
     type: deliveryDraft.value.type,
@@ -439,7 +446,7 @@ const handlePay = () => {
     delivery_currency: deliveryQuote.value.delivery_currency,
     delivery_eta: deliveryQuote.value.delivery_eta,
     tariff_code: deliveryQuote.value.tariff_code,
-    provider_metadata: deliveryQuote.value.provider_metadata,
+    provider_metadata: Object.keys(mergedProviderMetadata).length ? mergedProviderMetadata : undefined,
     comment: deliveryDraft.value.comment || undefined,
   };
 

@@ -454,7 +454,7 @@ async function handleDeliveryPvzSearch(req, res) {
 async function handleDeliveryCalculate(req, res) {
   try {
     const payload = await readJsonBody(req);
-    const { provider, type, total_weight, pickup_point_id, address } = payload ?? {};
+    const { provider, type, total_weight, pickup_point_id, address, provider_metadata } = payload ?? {};
 
     if (!provider || !type) {
       sendJson(res, 400, { message: 'Провайдер и тип доставки обязательны.' });
@@ -494,6 +494,7 @@ async function handleDeliveryCalculate(req, res) {
       total_weight: weight,
       pickup_point_id,
       address,
+      provider_metadata,
     });
 
     sendJson(res, 200, quote);
@@ -509,7 +510,7 @@ async function handleDeliveryCalculate(req, res) {
 async function handleDeliveryTariffs(req, res) {
   try {
     const payload = await readJsonBody(req);
-    const { provider, type, total_weight, pickup_point_id, address } = payload ?? {};
+    const { provider, type, total_weight, pickup_point_id, address, provider_metadata } = payload ?? {};
 
     if (!provider || !type) {
       sendJson(res, 400, { message: 'Провайдер и тип доставки обязательны.' });
@@ -522,12 +523,35 @@ async function handleDeliveryTariffs(req, res) {
       return;
     }
 
+    if (type === 'pvz') {
+      if (!pickup_point_id) {
+        sendJson(res, 400, { message: 'pickup_point_id обязателен для ПВЗ.' });
+        return;
+      }
+      if (address) {
+        sendJson(res, 400, { message: 'address не используется для ПВЗ.' });
+        return;
+      }
+    }
+
+    if (type === 'door') {
+      if (!address) {
+        sendJson(res, 400, { message: 'address обязателен для доставки до двери.' });
+        return;
+      }
+      if (pickup_point_id) {
+        sendJson(res, 400, { message: 'pickup_point_id не используется для доставки до двери.' });
+        return;
+      }
+    }
+
     const tariffs = await listDeliveryTariffs({
       provider,
       type,
       total_weight: weight,
       pickup_point_id,
       address,
+      provider_metadata,
     });
 
     sendJson(res, 200, { tariffs });

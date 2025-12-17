@@ -42,7 +42,14 @@ export async function searchPvz({ query, city, lat, lon }) {
 }
 
 export async function calculate(options) {
-  const { type, total_weight, pickup_point_id, address, tariff_code: forcedTariffCode } = options ?? {};
+  const {
+    type,
+    total_weight,
+    pickup_point_id,
+    address,
+    provider_metadata,
+    tariff_code: forcedTariffCode,
+  } = options ?? {};
   const weightKg = Number(total_weight);
   if (!Number.isFinite(weightKg) || weightKg <= 0) {
     throw new Error('CDEK: вес отправления обязателен.');
@@ -55,7 +62,7 @@ export async function calculate(options) {
   const token = await getToken();
   const weightGrams = Math.max(1, Math.round(weightKg * 1000));
   const payload = {
-    from_location: { code: originCityCode },
+    from_location: { code: originCityCode, city_code: originCityCode },
     packages: [{ weight: weightGrams }],
   };
 
@@ -63,23 +70,28 @@ export async function calculate(options) {
     if (!pickup_point_id) {
       throw new Error('CDEK: pickup_point_id обязателен для доставки в ПВЗ.');
     }
-    const point = await fetchPointByCode(token, pickup_point_id);
-    if (!point?.location?.city_code) {
-      throw new Error('CDEK: не удалось определить город ПВЗ для расчёта.');
+    const toCityCode = provider_metadata?.to_city_code;
+    if (!toCityCode) {
+      throw new Error(
+        'to_city_code обязателен для расчёта PVZ (выберите ПВЗ заново)',
+      );
     }
-    payload.to_location = { code: point.location.city_code };
+    payload.to_location = { code: toCityCode, city_code: toCityCode };
     payload.delivery_point = pickup_point_id;
   } else {
     const toAddress = normalizeAddress(address);
+    const toCityCode =
+      provider_metadata?.to_city_code ??
+      (await resolveCityCodeByAddress(toAddress));
+    if (!toCityCode) {
+      throw new Error('Не удалось определить город доставки');
+    }
     if (!toAddress.city) {
       throw new Error('CDEK: адрес доставки обязателен для режима \"до двери\".');
     }
-    const cityCode = await resolveCityCode(toAddress.city);
-    if (!cityCode) {
-      throw new Error('CDEK: не удалось определить код города получателя.');
-    }
     payload.to_location = {
-      code: cityCode,
+      code: toCityCode,
+      city_code: toCityCode,
       address: `${toAddress.region}, ${toAddress.city}, ${toAddress.street} ${toAddress.house}${
         toAddress.flat ? `, кв. ${toAddress.flat}` : ''
       }`,
@@ -96,6 +108,7 @@ export async function calculate(options) {
       total_weight: weightKg,
       pickup_point_id,
       address,
+      provider_metadata,
     });
     if (!tariffs.length) {
       throw new Error('CDEK: не удалось получить тарифы для расчёта.');
@@ -152,7 +165,7 @@ export async function calculate(options) {
   };
 }
 
-export async function listTariffs({ type, total_weight, pickup_point_id, address }) {
+export async function listTariffs({ type, total_weight, pickup_point_id, address, provider_metadata }) {
   const weightKg = Number(total_weight);
   if (!Number.isFinite(weightKg) || weightKg <= 0) {
     throw new Error('CDEK: вес отправления обязателен.');
@@ -164,7 +177,7 @@ export async function listTariffs({ type, total_weight, pickup_point_id, address
   const token = await getToken();
   const weightGrams = Math.max(1, Math.round(weightKg * 1000));
   const payload = {
-    from_location: { code: originCityCode },
+    from_location: { code: originCityCode, city_code: originCityCode },
     packages: [{ weight: weightGrams }],
   };
 
@@ -172,24 +185,28 @@ export async function listTariffs({ type, total_weight, pickup_point_id, address
     if (!pickup_point_id) {
       throw new Error('CDEK: pickup_point_id обязателен для ПВЗ.');
     }
-    const point = await fetchPointByCode(token, pickup_point_id);
-    const cityCode = point?.location?.city_code;
-    if (!cityCode) {
-      throw new Error('Не удалось определить city_code получателя.');
+    const toCityCode = provider_metadata?.to_city_code;
+    if (!toCityCode) {
+      throw new Error(
+        'to_city_code обязателен для расчёта PVZ (выберите ПВЗ заново)',
+      );
     }
-    payload.to_location = { code: cityCode };
+    payload.to_location = { code: toCityCode, city_code: toCityCode };
     payload.delivery_point = pickup_point_id;
   } else {
     const toAddress = normalizeAddress(address);
+    const toCityCode =
+      provider_metadata?.to_city_code ??
+      (await resolveCityCodeByAddress(toAddress));
+    if (!toCityCode) {
+      throw new Error('Не удалось определить город доставки');
+    }
     if (!toAddress.city) {
       throw new Error('CDEK: адрес доставки обязателен для режима "до двери".');
     }
-    const cityCode = await resolveCityCode(toAddress.city);
-    if (!cityCode) {
-      throw new Error('Не удалось определить city_code получателя.');
-    }
     payload.to_location = {
-      code: cityCode,
+      code: toCityCode,
+      city_code: toCityCode,
       address: `${toAddress.region}, ${toAddress.city}, ${toAddress.street} ${toAddress.house}${
         toAddress.flat ? `, кв. ${toAddress.flat}` : ''
       }`,
@@ -310,10 +327,12 @@ function normalizePoint(point) {
   if (!point) return null;
   const lat = point.location?.latitude ?? point.latitude ?? null;
   const lon = point.location?.longitude ?? point.longitude ?? null;
+  const cityCode = point.location?.city_code ?? point.location?.cityCode ?? point.city_code ?? null;
   return {
     id: point.code ?? point.id ?? point.uuid ?? null,
     name: point.name ?? point.location?.address ?? point.address ?? 'ПВЗ СДЭК',
     address: point.location?.address_full ?? point.location?.address ?? point.address ?? '',
+    city_code: cityCode === null ? undefined : String(cityCode),
     lat: lat === null ? undefined : Number(lat),
     lon: lon === null ? undefined : Number(lon),
   };
@@ -329,6 +348,43 @@ function normalizeAddress(raw) {
     house: stringOrEmpty(safe.house),
     flat: stringOrEmpty(safe.flat),
   };
+}
+
+async function resolveCityCodeByAddress(address) {
+  const toAddress = normalizeAddress(address);
+  const token = await getToken();
+
+  const tryFetch = async (params) => {
+    const url = new URL(`${BASE_URL}/location/cities`);
+    Object.entries(params).forEach(([key, value]) => {
+      if (value) {
+        url.searchParams.set(key, String(value));
+      }
+    });
+    url.searchParams.set('size', '5');
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok) return null;
+    const cities = await response.json();
+    const match = Array.isArray(cities) ? cities[0] : null;
+    const code = match?.code ?? null;
+    return code ? String(code) : null;
+  };
+
+  if (toAddress.postal_code) {
+    const byPostal =
+      (await tryFetch({ postal_code: toAddress.postal_code })) ??
+      (await tryFetch({ post_code: toAddress.postal_code }));
+    if (byPostal) return byPostal;
+  }
+
+  if (toAddress.city) {
+    const byCity =
+      (await tryFetch({ city: toAddress.city, region: toAddress.region })) ??
+      (await tryFetch({ city: toAddress.city }));
+    if (byCity) return byCity;
+  }
+
+  return null;
 }
 
 function stringOrEmpty(value) {
