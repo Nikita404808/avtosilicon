@@ -34,6 +34,7 @@ export async function calculate({ provider, type, total_weight, pickup_point_id,
   url.searchParams.set('weight', String(weightGrams));
   url.searchParams.set('from', String(fromIndex));
   url.searchParams.set('to', String(toIndex));
+  url.searchParams.set('pack', '10');
   url.searchParams.set('format', 'json');
   url.searchParams.set('errorcode', '1');
 
