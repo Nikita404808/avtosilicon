@@ -55,14 +55,12 @@ export async function calculate(options) {
     throw new Error('CDEK: вес отправления обязателен.');
   }
 
-  if (!originCityCode) {
-    throw new Error('CDEK_ORIGIN_CITY_CODE не задан в окружении.');
-  }
+  const originCityCodeNumber = resolveRequiredCityCode(originCityCode, 'CDEK_ORIGIN_CITY_CODE');
 
   const token = await getToken();
-  const weightGrams = Math.max(1, Math.round(weightKg * 1000));
+  const weightGrams = toWeightGrams(weightKg);
   const payload = {
-    from_location: { code: originCityCode, city_code: originCityCode },
+    from_location: { city_code: originCityCodeNumber },
     packages: [{ weight: weightGrams }],
   };
 
@@ -76,7 +74,7 @@ export async function calculate(options) {
         'to_city_code обязателен для расчёта PVZ (выберите ПВЗ заново)',
       );
     }
-    payload.to_location = { code: toCityCode, city_code: toCityCode };
+    payload.to_location = { city_code: resolveRequiredCityCode(toCityCode, 'to_city_code') };
     payload.delivery_point = pickup_point_id;
   } else {
     const toAddress = normalizeAddress(address);
@@ -90,12 +88,7 @@ export async function calculate(options) {
       throw new Error('CDEK: адрес доставки обязателен для режима \"до двери\".');
     }
     payload.to_location = {
-      code: toCityCode,
-      city_code: toCityCode,
-      address: `${toAddress.region}, ${toAddress.city}, ${toAddress.street} ${toAddress.house}${
-        toAddress.flat ? `, кв. ${toAddress.flat}` : ''
-      }`,
-      postal_code: toAddress.postal_code,
+      city_code: resolveRequiredCityCode(toCityCode, 'to_city_code'),
     };
   }
 
@@ -170,14 +163,12 @@ export async function listTariffs({ type, total_weight, pickup_point_id, address
   if (!Number.isFinite(weightKg) || weightKg <= 0) {
     throw new Error('CDEK: вес отправления обязателен.');
   }
-  if (!originCityCode) {
-    throw new Error('CDEK_ORIGIN_CITY_CODE не задан в окружении.');
-  }
+  const originCityCodeNumber = resolveRequiredCityCode(originCityCode, 'CDEK_ORIGIN_CITY_CODE');
 
   const token = await getToken();
-  const weightGrams = Math.max(1, Math.round(weightKg * 1000));
+  const weightGrams = toWeightGrams(weightKg);
   const payload = {
-    from_location: { code: originCityCode, city_code: originCityCode },
+    from_location: { city_code: originCityCodeNumber },
     packages: [{ weight: weightGrams }],
   };
 
@@ -191,7 +182,7 @@ export async function listTariffs({ type, total_weight, pickup_point_id, address
         'to_city_code обязателен для расчёта PVZ (выберите ПВЗ заново)',
       );
     }
-    payload.to_location = { code: toCityCode, city_code: toCityCode };
+    payload.to_location = { city_code: resolveRequiredCityCode(toCityCode, 'to_city_code') };
     payload.delivery_point = pickup_point_id;
   } else {
     const toAddress = normalizeAddress(address);
@@ -205,12 +196,7 @@ export async function listTariffs({ type, total_weight, pickup_point_id, address
       throw new Error('CDEK: адрес доставки обязателен для режима "до двери".');
     }
     payload.to_location = {
-      code: toCityCode,
-      city_code: toCityCode,
-      address: `${toAddress.region}, ${toAddress.city}, ${toAddress.street} ${toAddress.house}${
-        toAddress.flat ? `, кв. ${toAddress.flat}` : ''
-      }`,
-      postal_code: toAddress.postal_code,
+      city_code: resolveRequiredCityCode(toCityCode, 'to_city_code'),
     };
   }
 
@@ -229,11 +215,9 @@ export async function listTariffs({ type, total_weight, pickup_point_id, address
   }
 
   const data = await response.json();
-  if (!Array.isArray(data)) {
-    return [];
-  }
+  const list = Array.isArray(data) ? data : Array.isArray(data?.tariffs) ? data.tariffs : [];
 
-  return data
+  return list
     .map((item) => {
       const price = Number(item.total_sum ?? item.delivery_sum ?? item.price ?? 0);
       const periodMin = item.period_min ?? item.period?.min;
@@ -348,6 +332,23 @@ function normalizeAddress(raw) {
     house: stringOrEmpty(safe.house),
     flat: stringOrEmpty(safe.flat),
   };
+}
+
+function toWeightGrams(weightKg) {
+  const weight = Number(weightKg);
+  if (!Number.isFinite(weight) || weight <= 0) {
+    throw new Error('CDEK: вес отправления обязателен.');
+  }
+  return Math.max(1, Math.ceil(weight * 1000));
+}
+
+function resolveRequiredCityCode(value, fieldName) {
+  const raw = typeof value === 'string' ? value.trim() : value;
+  const numeric = typeof raw === 'number' ? raw : Number(raw ?? NaN);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    throw new Error(`${fieldName} обязателен для расчёта доставки.`);
+  }
+  return Number(numeric);
 }
 
 async function resolveCityCodeByAddress(address) {

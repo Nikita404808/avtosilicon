@@ -53,10 +53,11 @@ const formattedPrice = computed(() => {
   return 'Цена по запросу';
 });
 
-const normalizeWeight = (rawWeight: unknown) => {
-  const numeric = typeof rawWeight === 'string' ? Number.parseFloat(rawWeight) : Number(rawWeight);
-  if (!Number.isFinite(numeric)) return 0;
-  return Math.max(0, numeric);
+const normalizeWeightKgFromProduct = (rawWeight: unknown) => {
+  // Directus: grams → Cart: kilograms (float)
+  const grams = typeof rawWeight === 'string' ? Number.parseFloat(rawWeight) : Number(rawWeight);
+  if (!Number.isFinite(grams) || grams <= 0) return 0;
+  return grams / 1000;
 };
 
 const increment = () => {
@@ -76,7 +77,7 @@ const addToCart = () => {
       amount: props.product.price ?? 0,
       currency: 'RUB',
     },
-    weight: normalizeWeight(props.product.weight),
+    weight: normalizeWeightKgFromProduct(props.product.weight),
   });
   cartStore.toggleCart(true);
 };
