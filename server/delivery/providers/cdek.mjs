@@ -60,7 +60,7 @@ export async function calculate(options) {
   const token = await getToken();
   const weightGrams = toWeightGrams(weightKg);
   const payload = {
-    from_location: { city_code: originCityCodeNumber },
+    from_location: { city_code: originCityCodeNumber, code: originCityCodeNumber },
     packages: [{ weight: weightGrams }],
   };
 
@@ -74,7 +74,8 @@ export async function calculate(options) {
         'to_city_code обязателен для расчёта PVZ (выберите ПВЗ заново)',
       );
     }
-    payload.to_location = { city_code: resolveRequiredCityCode(toCityCode, 'to_city_code') };
+    const toCityCodeNumber = resolveRequiredCityCode(toCityCode, 'to_city_code');
+    payload.to_location = { city_code: toCityCodeNumber, code: toCityCodeNumber };
     payload.delivery_point = pickup_point_id;
   } else {
     const toAddress = normalizeAddress(address);
@@ -87,8 +88,10 @@ export async function calculate(options) {
     if (!toAddress.city) {
       throw new Error('CDEK: адрес доставки обязателен для режима \"до двери\".');
     }
+    const toCityCodeNumber = resolveRequiredCityCode(toCityCode, 'to_city_code');
     payload.to_location = {
-      city_code: resolveRequiredCityCode(toCityCode, 'to_city_code'),
+      city_code: toCityCodeNumber,
+      code: toCityCodeNumber,
     };
   }
 
@@ -168,7 +171,7 @@ export async function listTariffs({ type, total_weight, pickup_point_id, address
   const token = await getToken();
   const weightGrams = toWeightGrams(weightKg);
   const payload = {
-    from_location: { city_code: originCityCodeNumber },
+    from_location: { city_code: originCityCodeNumber, code: originCityCodeNumber },
     packages: [{ weight: weightGrams }],
   };
 
@@ -182,7 +185,8 @@ export async function listTariffs({ type, total_weight, pickup_point_id, address
         'to_city_code обязателен для расчёта PVZ (выберите ПВЗ заново)',
       );
     }
-    payload.to_location = { city_code: resolveRequiredCityCode(toCityCode, 'to_city_code') };
+    const toCityCodeNumber = resolveRequiredCityCode(toCityCode, 'to_city_code');
+    payload.to_location = { city_code: toCityCodeNumber, code: toCityCodeNumber };
     payload.delivery_point = pickup_point_id;
   } else {
     const toAddress = normalizeAddress(address);
@@ -195,8 +199,10 @@ export async function listTariffs({ type, total_weight, pickup_point_id, address
     if (!toAddress.city) {
       throw new Error('CDEK: адрес доставки обязателен для режима "до двери".');
     }
+    const toCityCodeNumber = resolveRequiredCityCode(toCityCode, 'to_city_code');
     payload.to_location = {
-      city_code: resolveRequiredCityCode(toCityCode, 'to_city_code'),
+      city_code: toCityCodeNumber,
+      code: toCityCodeNumber,
     };
   }
 
