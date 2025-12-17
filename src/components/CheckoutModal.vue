@@ -43,7 +43,17 @@
 
           <section v-if="deliveryDraft.type === 'pvz'" class="checkout__section">
             <h3>Пункты выдачи</h3>
-            <div class="checkout__pvz-search">
+            <div v-if="deliveryDraft.provider === 'ruspost'" class="checkout__pvz-search">
+              <input
+                :value="deliveryDraft.pickup_point_id || ''"
+                type="text"
+                inputmode="numeric"
+                placeholder="Индекс отделения"
+                aria-label="Индекс отделения Почты России"
+                @input="onRuspostIndexChange"
+              />
+            </div>
+            <div v-else class="checkout__pvz-search">
               <input
                 :value="deliveryDraft.pvzSearch.city"
                 type="text"
@@ -62,9 +72,12 @@
                 {{ pvzLoading ? 'Поиск...' : 'Найти ПВЗ' }}
               </button>
             </div>
-            <p class="checkout__hint">Вес корзины: {{ cartStore.totalWeight || '—' }} кг</p>
+            <p class="checkout__hint">
+              <span v-if="deliveryDraft.provider === 'ruspost'">Для Почты РФ ПВЗ = индекс.</span>
+              <span> Вес корзины: {{ cartStore.totalWeight || '—' }} кг</span>
+            </p>
             <p v-if="pvzError" class="checkout__error">{{ pvzError }}</p>
-            <div class="checkout__points">
+            <div v-if="deliveryDraft.provider !== 'ruspost'" class="checkout__points">
               <button
                 v-for="point in deliveryDraft.pvzResults"
                 :key="point.id"
@@ -76,7 +89,10 @@
                 <span>{{ point.address }}</span>
               </button>
             </div>
-            <p v-if="!deliveryDraft.pvzResults.length && !pvzLoading" class="checkout__hint">
+            <p
+              v-if="deliveryDraft.provider !== 'ruspost' && !deliveryDraft.pvzResults.length && !pvzLoading"
+              class="checkout__hint"
+            >
               Сначала выполните поиск ПВЗ по городу.
             </p>
           </section>
@@ -154,22 +170,22 @@
           <section class="checkout__section checkout__summary">
             <div class="checkout__summary-info">
               <div class="checkout__quote">
-                <div>
-                  <span>Стоимость доставки:</span>
-                  <strong>{{ formattedDeliveryPrice }}</strong>
+                <div v-if="quoteLoading" class="checkout__quote-status">Рассчитываем доставку...</div>
+                <div v-else-if="quoteError" class="checkout__quote-status checkout__quote-status--error">
+                  <span>Не удалось рассчитать: {{ quoteError }}</span>
+                  <button type="button" class="checkout__retry" :disabled="!readyToQuote" @click="retryQuote">
+                    Повторить
+                  </button>
                 </div>
-                <small>Срок: {{ formattedEta }}</small>
+                <div v-else-if="deliveryPrice !== null" class="checkout__quote-status checkout__quote-status--success">
+                  <span>Доставка: {{ formattedDeliveryPrice }}, {{ formattedEta }}</span>
+                </div>
+                <div v-else class="checkout__quote-status">
+                  <span>Заполните данные для расчёта доставки.</span>
+                </div>
                 <small>Вес: {{ cartStore.totalWeight || '—' }} кг</small>
               </div>
               <div class="checkout__summary-actions">
-                <button
-                  type="button"
-                  class="checkout__calc"
-                  :disabled="!canCalculate || calcLoading"
-                  @click="handleCalculate"
-                >
-                  {{ calcLoading ? 'Расчёт...' : 'Рассчитать доставку' }}
-                </button>
                 <label :class="['checkout__bonus', { 'checkout__bonus--disabled': !canUseBonuses }]">
                   <input v-model="useBonuses" type="checkbox" :disabled="!canUseBonuses" />
                   <div>
@@ -179,8 +195,6 @@
                 </label>
               </div>
             </div>
-
-            <p v-if="calcError" class="checkout__error">{{ calcError }}</p>
 
             <div class="checkout__totals">
               <div>
@@ -212,8 +226,8 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useCartStore } from '@/stores/cart';
 import { useUserStore } from '@/stores/user';
-import { useCheckoutStore } from '@/stores/checkout';
-import { searchPvz, calculateDelivery } from '@/services/deliveryService';
+import { isReadyToQuote, useCheckoutStore } from '@/stores/checkout';
+import { searchPvz } from '@/services/deliveryService';
 import type { DeliveryServiceId } from '@/types/pickup';
 import type { DeliveryType, DeliveryPvz } from '@/types/delivery';
 
@@ -245,7 +259,7 @@ const useBonuses = ref(false);
 const cartStore = useCartStore();
 const userStore = useUserStore();
 const checkoutStore = useCheckoutStore();
-const { deliveryDraft, deliveryQuote, pvzLoading, pvzError, calcLoading, calcError } =
+const { deliveryDraft, deliveryQuote, pvzLoading, pvzError, quoteLoading, quoteError } =
   storeToRefs(checkoutStore);
 
 const bonusBalance = computed(() => userStore.bonusBalance);
@@ -258,25 +272,10 @@ const formattedBonusBalance = computed(() =>
 );
 const canUseBonuses = computed(() => bonusBalance.value > 0);
 
-const weightIsReady = computed(() => cartStore.totalWeight > 0);
-const recipientValid = computed(() => {
-  const words = deliveryDraft.value.recipient.full_name.trim().split(/\s+/).filter(Boolean).length;
-  const digits = deliveryDraft.value.recipient.phone.replace(/\D/g, '');
-  return words >= 2 && digits.length >= 10;
-});
-const addressValid = computed(() => {
-  const addr = deliveryDraft.value.address;
-  return Boolean(addr.region && addr.city && addr.postal_code && addr.street && addr.house);
-});
-const pvzReady = computed(() => Boolean(deliveryDraft.value.pickup_point_id));
-const canCalculate = computed(() => {
-  if (!weightIsReady.value || !recipientValid.value) return false;
-  if (deliveryDraft.value.type === 'pvz') return pvzReady.value;
-  return addressValid.value;
-});
+const readyToQuote = computed(() => isReadyToQuote(deliveryDraft.value, cartStore.totalWeight));
 const deliveryPrice = computed(() => deliveryQuote.value.delivery_price);
 const canSubmit = computed(
-  () => deliveryPrice.value !== null && canCalculate.value && !calcLoading.value,
+  () => deliveryPrice.value !== null && !quoteLoading.value && !quoteError.value,
 );
 
 const formattedDeliveryPrice = computed(() => {
@@ -311,11 +310,116 @@ watch(bonusBalance, (value) => {
   }
 });
 
+const quoteKeyRef = ref('');
+const debounceTimerRef = ref<number | null>(null);
+const abortControllerRef = ref<AbortController | null>(null);
+
+function abortQuoteRequest() {
+  if (!abortControllerRef.value) return;
+  abortControllerRef.value.abort();
+  abortControllerRef.value = null;
+}
+
+function clearDebounceTimer() {
+  if (debounceTimerRef.value === null) return;
+  window.clearTimeout(debounceTimerRef.value);
+  debounceTimerRef.value = null;
+}
+
+function scheduleQuote() {
+  clearDebounceTimer();
+  debounceTimerRef.value = window.setTimeout(async () => {
+    if (!props.open) return;
+    if (!readyToQuote.value) return;
+
+    const currentKey = checkoutStore.buildQuoteKey(cartStore.totalWeight);
+    if (!currentKey || currentKey !== quoteKeyRef.value) return;
+
+    abortQuoteRequest();
+    const controller = new AbortController();
+    abortControllerRef.value = controller;
+    await checkoutStore.calculateQuote(cartStore.totalWeight, { signal: controller.signal });
+  }, 550);
+}
+
 watch(
-  () => cartStore.totalWeight,
-  () => {
-    checkoutStore.resetQuote();
+  [
+    () => props.open,
+    () => cartStore.totalWeight,
+    () => deliveryDraft.value.provider,
+    () => deliveryDraft.value.type,
+    () => deliveryDraft.value.pickup_point_id,
+    () => (deliveryDraft.value.provider_metadata as Record<string, unknown>)?.to_city_code ?? '',
+    () => deliveryDraft.value.address.region,
+    () => deliveryDraft.value.address.city,
+    () => deliveryDraft.value.address.postal_code,
+    () => deliveryDraft.value.address.street,
+    () => deliveryDraft.value.address.house,
+    () => deliveryDraft.value.recipient.full_name,
+    () => deliveryDraft.value.recipient.phone,
+  ],
+  (values, prevValues) => {
+    const [
+      isOpen,
+      totalWeight,
+      provider,
+      type,
+      pickupPointId,
+      toCityCode,
+      region,
+      city,
+      postalCode,
+      street,
+      house,
+    ] = values;
+    const prev = prevValues ?? [];
+
+    if (!isOpen) {
+      clearDebounceTimer();
+      abortQuoteRequest();
+      return;
+    }
+
+    if (!readyToQuote.value) {
+      quoteKeyRef.value = '';
+      clearDebounceTimer();
+      abortQuoteRequest();
+      checkoutStore.resetQuote();
+      return;
+    }
+
+    const nextKey = checkoutStore.buildQuoteKey(totalWeight);
+    if (deliveryPrice.value !== null && !quoteError.value && !quoteLoading.value && !checkoutStore.lastQuoteKey) {
+      checkoutStore.lastQuoteKey = nextKey;
+    }
+
+    const keyFieldsChanged =
+      prevValues !== undefined &&
+      (totalWeight !== prev[1] ||
+        provider !== prev[2] ||
+        type !== prev[3] ||
+        pickupPointId !== prev[4] ||
+        toCityCode !== prev[5] ||
+        region !== prev[6] ||
+        city !== prev[7] ||
+        postalCode !== prev[8] ||
+        street !== prev[9] ||
+        house !== prev[10]);
+
+    if (!quoteKeyRef.value) {
+      quoteKeyRef.value = nextKey;
+    }
+
+    if (keyFieldsChanged) {
+      quoteKeyRef.value = nextKey;
+      clearDebounceTimer();
+      abortQuoteRequest();
+      checkoutStore.resetQuote();
+    }
+
+    scheduleQuote();
   },
+  { immediate: true },
 );
 
 onMounted(() => {
@@ -325,6 +429,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  clearDebounceTimer();
+  abortQuoteRequest();
   lockBodyScroll(false);
 });
 
@@ -346,6 +452,10 @@ function onPvzCityChange(event: Event) {
 
 function onPvzQueryChange(event: Event) {
   checkoutStore.setPvzSearchQuery((event.target as HTMLInputElement).value);
+}
+
+function onRuspostIndexChange(event: Event) {
+  checkoutStore.setPickupPointId((event.target as HTMLInputElement).value);
 }
 
 function onAddressChange(field: keyof typeof deliveryDraft.value.address, event: Event) {
@@ -395,33 +505,16 @@ async function handleSearchPvz() {
   }
 }
 
-async function handleCalculate() {
-  checkoutStore.setCalcError('');
-  checkoutStore.resetQuote();
-  if (!canCalculate.value) return;
-  checkoutStore.setCalcLoading(true);
-  try {
-    const payload = {
-      provider: deliveryDraft.value.provider,
-      type: deliveryDraft.value.type,
-      total_weight: cartStore.totalWeight,
-      pickup_point_id:
-        deliveryDraft.value.type === 'pvz' ? deliveryDraft.value.pickup_point_id : undefined,
-      address: deliveryDraft.value.type === 'door' ? deliveryDraft.value.address : undefined,
-      provider_metadata: Object.keys(deliveryDraft.value.provider_metadata ?? {}).length
-        ? deliveryDraft.value.provider_metadata
-        : undefined,
-    };
-    const quote = await calculateDelivery(payload);
-    checkoutStore.setDeliveryQuote(quote);
-  } catch (error) {
-    console.error('[Checkout] delivery calculate failed', error);
-    checkoutStore.setCalcError(
-      error instanceof Error ? error.message : 'Не удалось рассчитать доставку, попробуйте позже.',
-    );
-  } finally {
-    checkoutStore.setCalcLoading(false);
-  }
+async function retryQuote() {
+  if (!props.open) return;
+  if (!readyToQuote.value) return;
+
+  clearDebounceTimer();
+  abortQuoteRequest();
+
+  const controller = new AbortController();
+  abortControllerRef.value = controller;
+  await checkoutStore.calculateQuote(cartStore.totalWeight, { signal: controller.signal, force: true });
 }
 
 const handleClose = () => {
@@ -684,6 +777,31 @@ function formatCurrency(amount: number, currency: string) {
 .checkout__quote {
   display: grid;
   gap: var(--space-1);
+}
+
+.checkout__quote-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  font-weight: 600;
+}
+
+.checkout__quote-status--error {
+  color: var(--danger);
+}
+
+.checkout__retry {
+  border: 1px solid currentColor;
+  border-radius: var(--radius-md);
+  padding: 2px 10px;
+  background: transparent;
+  font-weight: 600;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
 }
 
 .checkout__error {

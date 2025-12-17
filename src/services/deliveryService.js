@@ -19,15 +19,17 @@ export async function searchPvz(provider, city, query) {
         body: JSON.stringify({ provider, city, query }),
     });
 }
-export async function calculateDelivery(body) {
+export async function calculateDelivery(body, options) {
     return request('/api/delivery/calculate', {
         method: 'POST',
         body: JSON.stringify(body),
+        signal: options?.signal,
     });
 }
-export async function tariffs(body) {
+export async function tariffs(body, options) {
     return request('/api/delivery/tariffs', {
         method: 'POST',
         body: JSON.stringify(body),
+        signal: options?.signal,
     });
 }

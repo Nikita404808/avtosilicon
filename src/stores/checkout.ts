@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia';
+import { calculateDelivery } from '@/services/deliveryService';
 import type { DeliveryQuote, DeliveryPvz, DeliveryType } from '@/types/delivery';
 import type { DeliveryServiceId } from '@/types/pickup';
 
@@ -31,8 +32,12 @@ type DeliveryState = {
   deliveryQuote: DeliveryQuote;
   pvzLoading: boolean;
   pvzError: string;
+  quoteLoading: boolean;
+  quoteError: string;
+  lastQuoteKey: string;
   calcLoading: boolean;
   calcError: string;
+  quoteRequestSeq: number;
 };
 
 const STORAGE_KEY = 'deliveryDraft';
@@ -69,6 +74,44 @@ const defaultQuote = (): DeliveryQuote => ({
   tariff_code: null,
   provider_metadata: null,
 });
+
+export function isReadyToQuote(draft: DeliveryDraft, totalWeight: number) {
+  if (!draft.provider || !draft.type || totalWeight <= 0) return false;
+  if (!draft.recipient.full_name?.trim() || !draft.recipient.phone?.trim()) return false;
+
+  if (draft.provider === 'ruspost') {
+    if (draft.type === 'pvz') {
+      const pickupPointId = String(draft.pickup_point_id ?? '');
+      return /^\d{5,6}$/.test(pickupPointId);
+    }
+    if (draft.type === 'door') {
+      return Boolean(draft.address?.postal_code);
+    }
+  }
+
+  if (draft.type === 'pvz') {
+    if (!draft.pickup_point_id) return false;
+    if (draft.provider === 'cdek') {
+      const toCityCode = String((draft.provider_metadata as Record<string, unknown>)?.to_city_code ?? '');
+      if (!toCityCode) return false;
+    }
+    return true;
+  }
+
+  const addr = draft.address;
+  return Boolean(addr.region && addr.city && addr.postal_code && addr.street && addr.house);
+}
+
+export function createQuoteKey(draft: DeliveryDraft, totalWeight: number) {
+  const provider = draft.provider ?? '';
+  const type = draft.type ?? '';
+  const pickupPointId = draft.pickup_point_id ?? '';
+  const toCityCode = String((draft.provider_metadata as Record<string, unknown>)?.to_city_code ?? '');
+  const postalCode = draft.address?.postal_code ?? '';
+  const street = draft.address?.street ?? '';
+  const house = draft.address?.house ?? '';
+  return `${provider}|${type}|${totalWeight}|${pickupPointId}|${toCityCode}|${postalCode}|${street}|${house}`;
+}
 
 function loadPersistedDraft(): DeliveryDraft | null {
   try {
@@ -108,12 +151,20 @@ export const useCheckoutStore = defineStore('checkout', {
     deliveryQuote: loadPersistedQuote() ?? defaultQuote(),
     pvzLoading: false,
     pvzError: '',
+    quoteLoading: false,
+    quoteError: '',
+    lastQuoteKey: '',
     calcLoading: false,
     calcError: '',
+    quoteRequestSeq: 0,
   }),
   actions: {
     resetQuote() {
+      this.quoteRequestSeq += 1;
       this.deliveryQuote = defaultQuote();
+      this.quoteLoading = false;
+      this.calcLoading = false;
+      this.quoteError = '';
       this.calcError = '';
       this.persistQuote();
     },
@@ -171,6 +222,14 @@ export const useCheckoutStore = defineStore('checkout', {
       this.resetQuote();
       this.persistDraft();
     },
+    setPickupPointId(value: string) {
+      const normalized = typeof value === 'string' ? value.trim() : '';
+      this.deliveryDraft.pickup_point_id = normalized || null;
+      this.deliveryDraft.pickup_point_address = null;
+      this.deliveryDraft.provider_metadata = {};
+      this.resetQuote();
+      this.persistDraft();
+    },
     clearPvzSelection() {
       this.deliveryDraft.pickup_point_id = null;
       this.deliveryDraft.pickup_point_address = null;
@@ -191,14 +250,73 @@ export const useCheckoutStore = defineStore('checkout', {
     },
     setDeliveryQuote(quote: DeliveryQuote) {
       this.deliveryQuote = { ...defaultQuote(), ...quote };
+      this.quoteError = '';
       this.calcError = '';
       this.persistQuote();
     },
-    setCalcLoading(isLoading: boolean) {
+    buildQuoteKey(totalWeight: number) {
+      return createQuoteKey(this.deliveryDraft, totalWeight);
+    },
+    async calculateQuote(totalWeight: number, options?: { signal?: AbortSignal; force?: boolean }) {
+      if (!isReadyToQuote(this.deliveryDraft, totalWeight)) return;
+
+      const quoteKey = createQuoteKey(this.deliveryDraft, totalWeight);
+      if (!options?.force && this.lastQuoteKey === quoteKey && this.deliveryQuote.delivery_price !== null) {
+        return;
+      }
+
+      this.quoteRequestSeq += 1;
+      const requestSeq = this.quoteRequestSeq;
+
+      this.quoteLoading = true;
+      this.calcLoading = true;
+      this.quoteError = '';
+      this.calcError = '';
+
+      try {
+        const payload = {
+          provider: this.deliveryDraft.provider,
+          type: this.deliveryDraft.type,
+          total_weight: totalWeight,
+          pickup_point_id: this.deliveryDraft.type === 'pvz' ? this.deliveryDraft.pickup_point_id : undefined,
+          address: this.deliveryDraft.type === 'door' ? this.deliveryDraft.address : undefined,
+          provider_metadata: Object.keys(this.deliveryDraft.provider_metadata ?? {}).length
+            ? this.deliveryDraft.provider_metadata
+            : undefined,
+        };
+        const quote = await calculateDelivery(payload, { signal: options?.signal });
+        if (requestSeq !== this.quoteRequestSeq) return;
+        this.setDeliveryQuote(quote);
+        this.lastQuoteKey = quoteKey;
+      } catch (error) {
+        if (requestSeq !== this.quoteRequestSeq) return;
+        const isAbort =
+          (error instanceof DOMException && error.name === 'AbortError') ||
+          (error instanceof Error && error.name === 'AbortError');
+        if (isAbort) return;
+        const message = error instanceof Error ? error.message : 'Не удалось рассчитать доставку, попробуйте позже.';
+        this.quoteError = message;
+        this.calcError = message;
+      } finally {
+        if (requestSeq === this.quoteRequestSeq) {
+          this.quoteLoading = false;
+          this.calcLoading = false;
+        }
+      }
+    },
+    setQuoteLoading(isLoading: boolean) {
+      this.quoteLoading = isLoading;
       this.calcLoading = isLoading;
     },
-    setCalcError(message: string) {
+    setQuoteError(message: string) {
+      this.quoteError = message;
       this.calcError = message;
+    },
+    setCalcLoading(isLoading: boolean) {
+      this.setQuoteLoading(isLoading);
+    },
+    setCalcError(message: string) {
+      this.setQuoteError(message);
     },
     persistDraft() {
       try {

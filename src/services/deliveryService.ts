@@ -33,10 +33,11 @@ export async function calculateDelivery(body: {
   pickup_point_id?: string | null;
   address?: Record<string, unknown>;
   provider_metadata?: Record<string, unknown>;
-}) {
+}, options?: Pick<RequestInit, 'signal'>) {
   return request<DeliveryCalculateResponse>('/api/delivery/calculate', {
     method: 'POST',
     body: JSON.stringify(body),
+    signal: options?.signal,
   });
 }
 
@@ -47,9 +48,10 @@ export async function tariffs(body: {
   pickup_point_id?: string | null;
   address?: Record<string, unknown>;
   provider_metadata?: Record<string, unknown>;
-}) {
+}, options?: Pick<RequestInit, 'signal'>) {
   return request<{ tariffs: unknown[] }>('/api/delivery/tariffs', {
     method: 'POST',
     body: JSON.stringify(body),
+    signal: options?.signal,
   });
 }

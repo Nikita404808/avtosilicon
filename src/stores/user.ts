@@ -442,22 +442,6 @@ function resolveLineWeight(line: Partial<OrderLine>) {
   return 0;
 }
 
-function buildFallbackOrderItems(items: { productId: string; quantity: number }[]): OrderLine[] {
-  return items
-    .map((line) => {
-      const product = findProduct(line.productId);
-      if (!product) return null;
-      return {
-        productId: String(product.id),
-        title: product.title,
-        quantity: line.quantity,
-        price: toMoney(product.price),
-        weight: normalizeWeight(product.weight),
-      };
-    })
-    .filter(Boolean) as OrderLine[];
-}
-
 function toMoney(amount: number | null | undefined): Money {
   if (typeof amount === 'number' && Number.isFinite(amount)) {
     return { amount, currency: 'RUB' };

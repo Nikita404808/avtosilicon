@@ -367,22 +367,6 @@ function resolveLineWeight(line) {
     }
     return 0;
 }
-function buildFallbackOrderItems(items) {
-    return items
-        .map((line) => {
-        const product = findProduct(line.productId);
-        if (!product)
-            return null;
-        return {
-            productId: String(product.id),
-            title: product.title,
-            quantity: line.quantity,
-            price: toMoney(product.price),
-            weight: normalizeWeight(product.weight),
-        };
-    })
-        .filter(Boolean);
-}
 function toMoney(amount) {
     if (typeof amount === 'number' && Number.isFinite(amount)) {
         return { amount, currency: 'RUB' };
