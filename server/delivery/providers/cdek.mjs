@@ -55,116 +55,39 @@ export async function calculate(options) {
     throw new Error('CDEK: вес отправления обязателен.');
   }
 
-  const originCityCodeNumber = resolveRequiredCityCode(originCityCode, 'CDEK_ORIGIN_CITY_CODE');
-
-  const token = await getToken();
-  const weightGrams = toWeightGrams(weightKg);
-  const payload = {
-    from_location: { city_code: originCityCodeNumber, code: originCityCodeNumber },
-    packages: [{ weight: weightGrams }],
-  };
-
-  if (type === 'pvz') {
-    if (!pickup_point_id) {
-      throw new Error('CDEK: pickup_point_id обязателен для доставки в ПВЗ.');
-    }
-    const toCityCode = provider_metadata?.to_city_code;
-    if (!toCityCode) {
-      throw new Error(
-        'to_city_code обязателен для расчёта PVZ (выберите ПВЗ заново)',
-      );
-    }
-    const toCityCodeNumber = resolveRequiredCityCode(toCityCode, 'to_city_code');
-    payload.to_location = { city_code: toCityCodeNumber, code: toCityCodeNumber };
-    payload.delivery_point = pickup_point_id;
-  } else {
-    const toAddress = normalizeAddress(address);
-    const toCityCode =
-      provider_metadata?.to_city_code ??
-      (await resolveCityCodeByAddress(toAddress));
-    if (!toCityCode) {
-      throw new Error('Не удалось определить город доставки');
-    }
-    if (!toAddress.city) {
-      throw new Error('CDEK: адрес доставки обязателен для режима \"до двери\".');
-    }
-    const toCityCodeNumber = resolveRequiredCityCode(toCityCode, 'to_city_code');
-    payload.to_location = {
-      city_code: toCityCodeNumber,
-      code: toCityCodeNumber,
-    };
-  }
-
-  let selectedTariff = null;
-  let appliedTariffCode = forcedTariffCode ?? null;
-
-  if (!appliedTariffCode) {
-    const tariffs = await listTariffs({
-      type,
-      total_weight: weightKg,
-      pickup_point_id,
-      address,
-      provider_metadata,
-    });
-    if (!tariffs.length) {
-      throw new Error('CDEK: не удалось получить тарифы для расчёта.');
-    }
-    selectedTariff = tariffs.reduce((best, current) => {
-      if (!best) return current;
-      const currentPrice = Number(current.delivery_price ?? Infinity);
-      const bestPrice = Number(best.delivery_price ?? Infinity);
-      return currentPrice < bestPrice ? current : best;
-    }, null);
-    appliedTariffCode = selectedTariff?.tariff_code ?? null;
-  }
-
-  if (appliedTariffCode) {
-    payload.tariff_code = appliedTariffCode;
-  }
-
-  const response = await fetch(`${BASE_URL}/calculator/tariff`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
+  const tariffs = await listTariffs({
+    type,
+    total_weight: weightKg,
+    pickup_point_id,
+    address,
+    provider_metadata,
   });
-
-  const raw = await response.text();
-  console.log('[CDEK RAW STATUS] /calculator/tariff', response.status);
-  console.log('[CDEK RAW BODY] /calculator/tariff', raw.slice(0, 2000));
-  if (!response.ok) {
-    throw new Error(`CDEK HTTP ${response.status}: ${raw}`);
+  if (!tariffs.length) {
+    throw new Error('CDEK: не удалось получить тарифы для расчёта.');
   }
 
-  let data = {};
-  try {
-    data = raw ? JSON.parse(raw) : {};
-  } catch (error) {
-    throw new Error(`CDEK: некорректный JSON от /calculator/tariff. ${raw.slice(0, 2000)}`);
+  const forced = forcedTariffCode
+    ? tariffs.find((tariff) => String(tariff.tariff_code) === String(forcedTariffCode))
+    : null;
+  const cheapest = tariffs.reduce((best, current) => {
+    const currentPrice = Number(current.delivery_price ?? Infinity);
+    const bestPrice = Number(best?.delivery_price ?? Infinity);
+    if (!Number.isFinite(currentPrice)) return best;
+    if (!best || currentPrice < bestPrice) return current;
+    return best;
+  }, null);
+
+  const selectedTariff = forced ?? cheapest ?? tariffs[0];
+  if (!selectedTariff?.tariff_code) {
+    throw new Error('CDEK: не удалось выбрать тариф для расчёта.');
   }
-  // TODO: уточнить поля ответа /calculator/tariff и сопоставление с delivery_price|eta|currency|tariff_code.
-  const deliveryPrice =
-    Number.isFinite(Number(data.total_sum))
-      ? Number(data.total_sum)
-      : Number.isFinite(Number(selectedTariff?.delivery_price))
-        ? Number(selectedTariff?.delivery_price)
-        : Number(data.price ?? data.delivery_sum ?? 0);
-  const currency = data.currency ?? selectedTariff?.delivery_currency ?? 'RUB';
-  const periodMin = data.period_min ?? data.period?.min ?? selectedTariff?.delivery_eta?.min;
-  const periodMax = data.period_max ?? data.period?.max ?? selectedTariff?.delivery_eta?.max;
-  const eta =
-    Number.isFinite(periodMin) && Number.isFinite(periodMax)
-      ? `${periodMin}-${periodMax} дн.`
-      : selectedTariff?.delivery_eta ?? null;
 
   return {
-    delivery_price: Math.max(0, deliveryPrice),
-    delivery_currency: currency,
-    delivery_eta: eta,
-    tariff_code: data.tariff_code ?? appliedTariffCode ?? null,
-    provider_metadata: data,
+    delivery_price: Number(selectedTariff.delivery_price),
+    delivery_currency: selectedTariff.delivery_currency ?? 'RUB',
+    delivery_eta: selectedTariff.delivery_eta ?? null,
+    tariff_code: selectedTariff.tariff_code,
+    provider_metadata: selectedTariff.provider_metadata ?? null,
   };
 }
 
@@ -222,40 +145,36 @@ export async function listTariffs({ type, total_weight, pickup_point_id, address
     body: JSON.stringify(payload),
   });
 
-  const raw = await response.text();
-  console.log('[CDEK RAW STATUS] /calculator/tarifflist', response.status);
-  console.log('[CDEK RAW BODY] /calculator/tarifflist', raw.slice(0, 2000));
   if (!response.ok) {
-    throw new Error(`CDEK HTTP ${response.status}: ${raw}`);
+    const message = await safeText(response);
+    throw new Error(`CDEK: не удалось получить список тарифов. ${message}`);
   }
 
-  let data = {};
-  try {
-    data = raw ? JSON.parse(raw) : {};
-  } catch (error) {
-    throw new Error(`CDEK: некорректный JSON от /calculator/tarifflist. ${raw.slice(0, 2000)}`);
-  }
-  const list = Array.isArray(data) ? data : Array.isArray(data?.tariffs) ? data.tariffs : [];
+  const data = await response.json();
+  const list = Array.isArray(data?.tariff_codes)
+    ? data.tariff_codes
+    : Array.isArray(data?.tariffs)
+      ? data.tariffs
+      : [];
 
   return list
     .map((item) => {
-      const price = Number(item.total_sum ?? item.delivery_sum ?? item.price ?? 0);
-      const periodMin = item.period_min ?? item.period?.min;
-      const periodMax = item.period_max ?? item.period?.max;
+      const price = Number(item.delivery_sum);
+      const periodMin = item.period_min;
+      const periodMax = item.period_max;
       const eta =
         Number.isFinite(periodMin) && Number.isFinite(periodMax)
           ? `${periodMin}-${periodMax} дн.`
           : null;
       return {
-        tariff_code: item.tariff_code ?? item.tariffCode ?? item.code ?? null,
-        tariff_name: item.tariff_name ?? item.tariffName ?? item.title ?? null,
+        tariff_code: item.tariff_code ?? null,
         delivery_price: Number.isFinite(price) ? price : null,
-        delivery_currency: item.currency ?? 'RUB',
+        delivery_currency: 'RUB',
         delivery_eta: eta,
-        raw: item,
+        provider_metadata: item,
       };
     })
-    .filter((item) => item.tariff_code);
+    .filter((item) => item.tariff_code && Number.isFinite(Number(item.delivery_price)));
 }
 
 async function getToken() {
