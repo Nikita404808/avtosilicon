@@ -43,17 +43,7 @@
 
           <section v-if="deliveryDraft.type === 'pvz'" class="checkout__section">
             <h3>Пункты выдачи</h3>
-            <div v-if="deliveryDraft.provider === 'ruspost'" class="checkout__pvz-search">
-              <input
-                :value="deliveryDraft.pickup_point_id || ''"
-                type="text"
-                inputmode="numeric"
-                placeholder="Индекс отделения"
-                aria-label="Индекс отделения Почты России"
-                @input="onRuspostIndexChange"
-              />
-            </div>
-            <div v-else class="checkout__pvz-search">
+            <div class="checkout__pvz-search">
               <input
                 :value="deliveryDraft.pvzSearch.city"
                 type="text"
@@ -73,11 +63,10 @@
               </button>
             </div>
             <p class="checkout__hint">
-              <span v-if="deliveryDraft.provider === 'ruspost'">Для Почты РФ ПВЗ = индекс.</span>
               <span> Вес корзины: {{ cartStore.totalWeight || '—' }} кг</span>
             </p>
             <p v-if="pvzError" class="checkout__error">{{ pvzError }}</p>
-            <div v-if="deliveryDraft.provider !== 'ruspost'" class="checkout__points">
+            <div class="checkout__points">
               <button
                 v-for="point in deliveryDraft.pvzResults"
                 :key="point.id"
@@ -90,7 +79,7 @@
               </button>
             </div>
             <p
-              v-if="deliveryDraft.provider !== 'ruspost' && !deliveryDraft.pvzResults.length && !pvzLoading"
+              v-if="!deliveryDraft.pvzResults.length && !pvzLoading"
               class="checkout__hint"
             >
               Сначала выполните поиск ПВЗ по городу.
@@ -452,10 +441,6 @@ function onPvzCityChange(event: Event) {
 
 function onPvzQueryChange(event: Event) {
   checkoutStore.setPvzSearchQuery((event.target as HTMLInputElement).value);
-}
-
-function onRuspostIndexChange(event: Event) {
-  checkoutStore.setPickupPointId((event.target as HTMLInputElement).value);
 }
 
 function onAddressChange(field: keyof typeof deliveryDraft.value.address, event: Event) {

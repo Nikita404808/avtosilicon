@@ -499,11 +499,16 @@ async function handleDeliveryCalculate(req, res) {
 
     sendJson(res, 200, quote);
   } catch (error) {
+    const error_code = extractErrorCode(error);
     if (isClientError(error)) {
-      sendJson(res, 400, { message: error.message });
+      sendJson(res, 400, { message: error.message, ...(error_code != null ? { error_code } : {}) });
       return;
     }
-    sendJson(res, 500, { message: 'Не удалось рассчитать доставку.', error: String(error?.message ?? error) });
+    sendJson(res, 500, {
+      message: 'Не удалось рассчитать доставку.',
+      ...(error_code != null ? { error_code } : {}),
+      error: String(error?.message ?? error),
+    });
   }
 }
 
@@ -556,11 +561,16 @@ async function handleDeliveryTariffs(req, res) {
 
     sendJson(res, 200, { tariffs });
   } catch (error) {
+    const error_code = extractErrorCode(error);
     if (isClientError(error)) {
-      sendJson(res, 400, { message: error.message });
+      sendJson(res, 400, { message: error.message, ...(error_code != null ? { error_code } : {}) });
       return;
     }
-    sendJson(res, 500, { message: 'Не удалось получить список тарифов.', error: String(error?.message ?? error) });
+    sendJson(res, 500, {
+      message: 'Не удалось получить список тарифов.',
+      ...(error_code != null ? { error_code } : {}),
+      error: String(error?.message ?? error),
+    });
   }
 }
 
@@ -814,8 +824,17 @@ function isClientError(error) {
   return (
     error instanceof Error &&
     (/Невалидный JSON/.test(error.message) ||
+      /^(RUSPOST|CDEK):/i.test(error.message) ||
       /обязател|недопустим|не удалось/i.test(error.message))
   );
+}
+
+function extractErrorCode(error) {
+  if (!error || typeof error !== 'object') return null;
+  const candidate = error.error_code ?? error.errorCode ?? error.code ?? null;
+  if (candidate == null) return null;
+  const numeric = typeof candidate === 'number' ? candidate : Number(String(candidate).trim());
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 function minutesToMs(value) {

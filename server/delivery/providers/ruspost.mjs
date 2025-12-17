@@ -3,24 +3,48 @@ const originIndex = process.env.RUSPOST_ORIGIN_INDEX;
 const objectCode = process.env.RUSPOST_OBJECT_CODE;
 
 export async function searchPvz({ query, city, lat, lon }) {
-  // Пока оставляем минимальную реализацию. Для Почты РФ в UI используем "ПВЗ = индекс".
-  void query;
-  void city;
-  void lat;
-  void lon;
-  return [];
+  const normalizedCity = typeof city === 'string' ? city.trim() : '';
+  const normalizedQuery = typeof query === 'string' ? query.trim() : '';
+  const fallbackLat = normalizeCoordinate(lat);
+  const fallbackLon = normalizeCoordinate(lon);
+
+  const geocodeQuery = [normalizedCity, normalizedQuery].filter(Boolean).join(', ').trim();
+  const bounds =
+    (geocodeQuery ? await resolveBoundsByQuery(geocodeQuery) : null) ??
+    (fallbackLat != null && fallbackLon != null
+      ? boundsAroundPoint(fallbackLat, fallbackLon)
+      : null);
+
+  if (!bounds) {
+    throw new Error('RUSPOST: не удалось определить координаты для поиска отделений.');
+  }
+
+  const points = await fetchOfficesFromRectangle(bounds);
+  const filteredByQuery = applyTextFilter(points, normalizedQuery);
+  const cityFiltered =
+    normalizedCity && normalizedCity !== normalizedQuery
+      ? applyTextFilter(filteredByQuery.length ? filteredByQuery : points, normalizedCity)
+      : [];
+  const filtered = cityFiltered.length ? cityFiltered : filteredByQuery;
+  return filtered.slice(0, 50);
 }
 
-export async function calculate({ provider, type, total_weight, pickup_point_id, address }) {
+export async function calculate({
+  provider,
+  type,
+  total_weight,
+  pickup_point_id,
+  address,
+  provider_metadata,
+}) {
   void provider;
-  ensureConfigured();
 
   const weightKg = Number(total_weight);
   if (!Number.isFinite(weightKg) || weightKg <= 0) {
     throw new Error('RUSPOST: вес отправления обязателен.');
   }
 
-  const fromIndex = requireEnv(originIndex, 'RUSPOST_ORIGIN_INDEX');
+  const fromIndex = resolveFromIndex(provider_metadata);
   const object = requireEnv(objectCode, 'RUSPOST_OBJECT_CODE');
 
   const toIndex =
@@ -51,9 +75,13 @@ export async function calculate({ provider, type, total_weight, pickup_point_id,
   }
 
   const data = await safeJson(response);
-  const errors = extractApiErrors(data);
-  if (errors) {
-    throw new Error(`RUSPOST: ${errors}`);
+  const apiError = extractApiError(data);
+  if (apiError?.message) {
+    const error = new Error(`RUSPOST: ${apiError.message}`);
+    if (apiError.code != null) {
+      error.error_code = apiError.code;
+    }
+    throw error;
   }
 
   const payKopeks = extractPayKopeks(data);
@@ -90,9 +118,14 @@ export async function listTariffs(options) {
   }
 }
 
-function ensureConfigured() {
-  requireEnv(originIndex, 'RUSPOST_ORIGIN_INDEX');
-  requireEnv(objectCode, 'RUSPOST_OBJECT_CODE');
+function resolveFromIndex(providerMetadata) {
+  const candidate = providerMetadata?.from_index ?? providerMetadata?.fromIndex ?? null;
+  const raw = typeof candidate === 'string' ? candidate.trim() : candidate == null ? '' : String(candidate).trim();
+  if (raw) {
+    const digits = raw.replace(/\s+/g, '');
+    if (/^\d{5,6}$/.test(digits)) return digits;
+  }
+  return requireEnv(originIndex, 'RUSPOST_ORIGIN_INDEX');
 }
 
 function normalizeAddress(raw) {
@@ -135,22 +168,32 @@ function toWeightGrams(weightKg) {
   return Math.max(1, Math.ceil(weight * 1000));
 }
 
-function extractApiErrors(payload) {
+function extractApiError(payload) {
   if (!payload || typeof payload !== 'object') {
-    return 'некорректный ответ API.';
+    return { code: null, message: 'некорректный ответ API.' };
   }
   const errors = payload.errors;
   if (Array.isArray(errors) && errors.length) {
-    return errors
+    const message = errors
       .map((item) => (item && typeof item === 'object' ? item.msg ?? item.message : String(item)))
       .filter(Boolean)
       .join('; ');
+    const code = resolveErrorCode(errors[0]);
+    return message ? { code, message } : null;
   }
   const message = payload.msg ?? payload.message ?? null;
   if (typeof message === 'string' && message.trim()) {
-    return message.trim();
+    return { code: resolveErrorCode(payload), message: message.trim() };
   }
-  return '';
+  return null;
+}
+
+function resolveErrorCode(value) {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value.code ?? value.error_code ?? value.errorCode ?? null;
+  if (candidate == null) return null;
+  const numeric = typeof candidate === 'number' ? candidate : Number(String(candidate).trim());
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 function extractPayKopeks(payload) {
@@ -220,4 +263,140 @@ async function safeText(response) {
   } catch (error) {
     return '';
   }
+}
+
+function normalizeCoordinate(value) {
+  if (value == null) return null;
+  const numeric = typeof value === 'number' ? value : Number(String(value).trim());
+  if (!Number.isFinite(numeric)) return null;
+  return numeric;
+}
+
+function boundsAroundPoint(lat, lon, delta = 0.25) {
+  const safeDelta = Number.isFinite(delta) && delta > 0 ? delta : 0.25;
+  const north = clampLatitude(lat + safeDelta);
+  const south = clampLatitude(lat - safeDelta);
+  const west = clampLongitude(lon - safeDelta);
+  const east = clampLongitude(lon + safeDelta);
+  return {
+    topLeftPoint: { latitude: north, longitude: west },
+    bottomRightPoint: { latitude: south, longitude: east },
+  };
+}
+
+function clampLatitude(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(-90, Math.min(90, numeric));
+}
+
+function clampLongitude(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(-180, Math.min(180, numeric));
+}
+
+async function resolveBoundsByQuery(query) {
+  const text = typeof query === 'string' ? query.trim() : '';
+  if (!text) return null;
+
+  const url = new URL('https://nominatim.openstreetmap.org/search');
+  url.searchParams.set('format', 'json');
+  url.searchParams.set('limit', '1');
+  url.searchParams.set('countrycodes', 'ru');
+  url.searchParams.set('q', text);
+
+  const response = await fetch(url, {
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'auto-silicone.ru (ruspost pvz search)',
+    },
+  });
+  if (!response.ok) return null;
+
+  const data = await response.json();
+  const first = Array.isArray(data) ? data[0] : null;
+  const bbox = Array.isArray(first?.boundingbox) ? first.boundingbox : null;
+  if (!bbox || bbox.length < 4) return null;
+
+  const south = Number(bbox[0]);
+  const north = Number(bbox[1]);
+  const west = Number(bbox[2]);
+  const east = Number(bbox[3]);
+  if (![south, north, west, east].every((v) => Number.isFinite(v))) return null;
+
+  return {
+    topLeftPoint: { latitude: clampLatitude(north), longitude: clampLongitude(west) },
+    bottomRightPoint: { latitude: clampLatitude(south), longitude: clampLongitude(east) },
+  };
+}
+
+async function fetchOfficesFromRectangle(bounds) {
+  const url = new URL('https://www.pochta.ru/suggestions/v2/postoffices.find-from-rectangle');
+  const payload = {
+    ...bounds,
+    precision: 0,
+    onlyCoordinate: false,
+    offset: 0,
+    limit: 100,
+    extFilters: ['OPS', 'NOT_TEMPORARY_CLOSED', 'NOT_PRIVATE', 'NOT_CLOSED', 'ONLY_ATI'],
+  };
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const message = await safeText(response);
+    throw new Error(`RUSPOST: не удалось загрузить отделения. ${message}`.trim());
+  }
+
+  const data = await safeJson(response);
+  const offices = Array.isArray(data?.postOffices) ? data.postOffices : [];
+  return offices.map(normalizeOffice).filter(Boolean);
+}
+
+function normalizeOffice(office) {
+  if (!office || typeof office !== 'object') return null;
+  const rawPostalCode = office.postalCode ?? office.postal_code ?? office.index ?? '';
+  const postalCode = String(rawPostalCode).trim();
+  if (!/^\d{5,6}$/.test(postalCode)) return null;
+
+  const address = office.address && typeof office.address === 'object' ? office.address : {};
+  const cityType = typeof address.settlementTypeOrCityType === 'string' ? address.settlementTypeOrCityType.trim() : '';
+  const cityName = typeof address.settlementOrCity === 'string' ? address.settlementOrCity.trim() : '';
+  const cityLabel = [cityType, cityName].filter(Boolean).join(' ').trim();
+
+  const addressSource =
+    typeof office.addressSource === 'string'
+      ? office.addressSource.trim()
+      : typeof address.shortAddress === 'string'
+        ? address.shortAddress.trim()
+        : typeof address.fullAddress === 'string'
+          ? address.fullAddress.trim()
+          : '';
+
+  const fullAddress = [cityLabel || null, addressSource || null].filter(Boolean).join(', ');
+  const lat = normalizeCoordinate(office.latitude ?? office.lat);
+  const lon = normalizeCoordinate(office.longitude ?? office.lon ?? office.lng);
+
+  return {
+    id: postalCode,
+    name: `${postalCode} — ${fullAddress || 'Отделение Почты России'}`,
+    address: fullAddress || addressSource || '',
+    lat: lat == null ? undefined : lat,
+    lon: lon == null ? undefined : lon,
+  };
+}
+
+function applyTextFilter(points, query) {
+  const q = typeof query === 'string' ? query.trim().toLowerCase() : '';
+  if (!q) return points;
+
+  return (Array.isArray(points) ? points : []).filter((point) => {
+    const haystack = `${point?.id ?? ''} ${point?.name ?? ''} ${point?.address ?? ''}`.toLowerCase();
+    return haystack.includes(q);
+  });
 }
