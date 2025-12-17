@@ -131,12 +131,19 @@ export async function calculate(options) {
     body: JSON.stringify(payload),
   });
 
+  const raw = await response.text();
+  console.log('[CDEK RAW STATUS] /calculator/tariff', response.status);
+  console.log('[CDEK RAW BODY] /calculator/tariff', raw.slice(0, 2000));
   if (!response.ok) {
-    const message = await safeText(response);
-    throw new Error(`CDEK: не удалось рассчитать доставку. ${message}`);
+    throw new Error(`CDEK HTTP ${response.status}: ${raw}`);
   }
 
-  const data = await response.json();
+  let data = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch (error) {
+    throw new Error(`CDEK: некорректный JSON от /calculator/tariff. ${raw.slice(0, 2000)}`);
+  }
   // TODO: уточнить поля ответа /calculator/tariff и сопоставление с delivery_price|eta|currency|tariff_code.
   const deliveryPrice =
     Number.isFinite(Number(data.total_sum))
@@ -215,12 +222,19 @@ export async function listTariffs({ type, total_weight, pickup_point_id, address
     body: JSON.stringify(payload),
   });
 
+  const raw = await response.text();
+  console.log('[CDEK RAW STATUS] /calculator/tarifflist', response.status);
+  console.log('[CDEK RAW BODY] /calculator/tarifflist', raw.slice(0, 2000));
   if (!response.ok) {
-    const message = await safeText(response);
-    throw new Error(`CDEK: не удалось получить список тарифов. ${message}`);
+    throw new Error(`CDEK HTTP ${response.status}: ${raw}`);
   }
 
-  const data = await response.json();
+  let data = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch (error) {
+    throw new Error(`CDEK: некорректный JSON от /calculator/tarifflist. ${raw.slice(0, 2000)}`);
+  }
   const list = Array.isArray(data) ? data : Array.isArray(data?.tariffs) ? data.tariffs : [];
 
   return list
