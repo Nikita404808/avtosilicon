@@ -106,7 +106,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'POST' && requestUrl.pathname === '/api/delivery/pvz/search') {
-    await handleDeliveryPvzSearch(req, res);
+    await handleDeliveryPvzSearch(req, res, requestUrl);
     return;
   }
 
@@ -424,7 +424,7 @@ async function handleResetPassword(req, res) {
   }
 }
 
-async function handleDeliveryPvzSearch(req, res) {
+async function handleDeliveryPvzSearch(req, res, requestUrl) {
   try {
     const payload = await readJsonBody(req);
     const provider = payload?.provider;
@@ -433,12 +433,16 @@ async function handleDeliveryPvzSearch(req, res) {
       return;
     }
 
+    const modeFromQuery = requestUrl?.searchParams?.get('mode');
+    const mode = modeFromQuery ?? payload?.mode ?? 'pickup';
+
     const points = await searchDeliveryPvz({
       provider,
       query: payload?.query,
       city: payload?.city,
       lat: payload?.lat,
       lon: payload?.lon,
+      mode,
     });
 
     sendJson(res, 200, { points });

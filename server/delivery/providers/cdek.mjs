@@ -8,37 +8,42 @@ let tokenCache = {
   expiresAt: 0,
 };
 
-export async function searchPvz({ query, city, lat, lon }) {
+export async function searchPvz({ query, city, lat, lon, mode }) {
   const cityCode = await resolveCityCode(query || city);
   if (!cityCode) {
     throw new Error('CDEK: не удалось определить город для поиска ПВЗ.');
   }
   const token = await getToken();
-  const url = new URL(`${BASE_URL}/deliverypoints`);
-  url.searchParams.set('city_code', cityCode);
-  url.searchParams.set('type', 'PVZ');
-  if (lat && lon) {
-    url.searchParams.set('latitude', lat);
-    url.searchParams.set('longitude', lon);
-  }
-
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+  const points = await fetchDeliveryPointsList({
+    token,
+    cityCode,
+    lat,
+    lon,
+    types: ['PVZ', 'POSTAMAT'],
   });
 
-  if (!response.ok) {
-    const message = await safeText(response);
-    throw new Error(`CDEK: не удалось загрузить ПВЗ. ${message}`);
-  }
+  const searchMode = normalizePvzMode(mode);
+  const raw = Array.isArray(points) ? points : [];
 
-  const payload = await response.json();
-  if (!Array.isArray(payload)) {
-    throw new Error('CDEK: некорректный ответ при поиске ПВЗ.');
-  }
+  logCdekPvzSamplesIfEnabled(raw);
 
-  return payload.map(normalizePoint).filter(Boolean);
+  const filtered = raw.filter((point) => {
+    const { canPickup, canDropoff } = getCdekPointCapabilities(point);
+    if (searchMode === 'send') return canDropoff;
+    return canPickup;
+  });
+
+  // Желательно: сначала PVZ, потом POSTAMAT
+  filtered.sort((a, b) => {
+    const aPostamat = getCdekPointCapabilities(a).isPostamat;
+    const bPostamat = getCdekPointCapabilities(b).isPostamat;
+    if (aPostamat === bPostamat) return 0;
+    return aPostamat ? 1 : -1;
+  });
+
+  const normalized = filtered.map(normalizePoint).filter(Boolean);
+
+  return normalized;
 }
 
 export async function calculate(options) {
@@ -248,17 +253,244 @@ async function fetchPointByCode(token, code) {
 
 function normalizePoint(point) {
   if (!point) return null;
+  const { isPostamat } = getCdekPointCapabilities(point);
   const lat = point.location?.latitude ?? point.latitude ?? null;
   const lon = point.location?.longitude ?? point.longitude ?? null;
   const cityCode = point.location?.city_code ?? point.location?.cityCode ?? point.city_code ?? null;
+  const rawName = point.name ?? point.location?.address ?? point.address ?? 'ПВЗ СДЭК';
+  const name = isPostamat ? `${rawName} (Постамат)` : rawName;
   return {
     id: point.code ?? point.id ?? point.uuid ?? null,
-    name: point.name ?? point.location?.address ?? point.address ?? 'ПВЗ СДЭК',
+    name,
     address: point.location?.address_full ?? point.location?.address ?? point.address ?? '',
     city_code: cityCode === null ? undefined : String(cityCode),
     lat: lat === null ? undefined : Number(lat),
     lon: lon === null ? undefined : Number(lon),
   };
+}
+
+function normalizePvzMode(value) {
+  const mode = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (mode === 'send') return 'send';
+  return 'pickup';
+}
+
+async function fetchDeliveryPointsList({ token, cityCode, lat, lon, types }) {
+  const list = [];
+  const seen = new Set();
+  const typesList = Array.isArray(types) && types.length ? types : [null];
+
+  for (const type of typesList) {
+    const url = new URL(`${BASE_URL}/deliverypoints`);
+    url.searchParams.set('city_code', cityCode);
+    if (type) url.searchParams.set('type', type);
+    if (lat != null && lon != null && lat !== '' && lon !== '') {
+      url.searchParams.set('latitude', lat);
+      url.searchParams.set('longitude', lon);
+    }
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const message = await safeText(response);
+      if (type && typesList.length > 1) {
+        if (String(process.env.DEBUG_CDEK_PVZ ?? '') === '1') {
+          console.log('CDEK PVZ DEBUG: failed to fetch type', { type, status: response.status, message });
+        }
+        continue;
+      }
+      throw new Error(`CDEK: не удалось загрузить ПВЗ. ${message}`);
+    }
+
+    const payload = await response.json();
+    if (!Array.isArray(payload)) {
+      throw new Error('CDEK: некорректный ответ при поиске ПВЗ.');
+    }
+
+    for (const point of payload) {
+      const id = point?.code ?? point?.id ?? point?.uuid ?? null;
+      const key = id == null ? null : String(id);
+      if (key && seen.has(key)) continue;
+      if (key) seen.add(key);
+      list.push(point);
+    }
+  }
+
+  return list;
+}
+
+function getCdekPointCapabilities(point) {
+  const typeCandidate = [
+    point?.type,
+    point?.office_type,
+    point?.officeType,
+    point?.point_type,
+    point?.pointType,
+  ]
+    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+    .find(Boolean);
+  const normalizedType = typeCandidate ? typeCandidate.toUpperCase() : '';
+
+  const isPostamat = normalizedType === 'POSTAMAT';
+
+  const { pickupSignal, dropoffSignal } = extractOperationSignals(point);
+
+  const fallbackPickupByType = normalizedType === 'PVZ' || normalizedType === 'POSTAMAT';
+
+  const canPickup = pickupSignal ?? fallbackPickupByType;
+  const canDropoff = dropoffSignal ?? false;
+
+  return { canPickup: Boolean(canPickup), canDropoff: Boolean(canDropoff), isPostamat };
+}
+
+function extractOperationSignals(point) {
+  const pickupRegex = /(handout|issue|pickup|выдач|получ)/i;
+  const dropoffRegex = /(accept|dropoff|take|receive|прием|отправ)/i;
+
+  const pickupVotes = [];
+  const dropoffVotes = [];
+
+  const pushVote = (votes, value) => {
+    if (value === true || value === false) votes.push(value);
+  };
+
+  const scanPrimitive = (value) => {
+    if (typeof value === 'string') {
+      if (pickupRegex.test(value)) pickupVotes.push(true);
+      if (dropoffRegex.test(value)) dropoffVotes.push(true);
+    }
+    if (typeof value === 'number') {
+      // Числовые коды без документации не интерпретируем.
+    }
+  };
+
+  const scanObjectKeys = (obj, { scanValues } = {}) => {
+    if (!obj || typeof obj !== 'object') return;
+    for (const [key, value] of Object.entries(obj)) {
+      if (typeof value === 'boolean') {
+        if (pickupRegex.test(key)) pushVote(pickupVotes, value);
+        if (dropoffRegex.test(key)) pushVote(dropoffVotes, value);
+      } else if (scanValues && (typeof value === 'string' || typeof value === 'number')) {
+        scanPrimitive(value);
+      }
+    }
+  };
+
+  const candidates = [
+    point?.allowed_operation,
+    point?.allowed_operations,
+    point?.operations,
+    point?.operation,
+    point?.services,
+    point?.service,
+  ];
+
+  for (const value of candidates) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item && typeof item === 'object') {
+          scanObjectKeys(item, { scanValues: true });
+          scanPrimitive(item.code);
+          scanPrimitive(item.name);
+          scanPrimitive(item.type);
+          scanPrimitive(item.operation);
+        } else {
+          scanPrimitive(item);
+        }
+      }
+      continue;
+    }
+    if (value && typeof value === 'object') {
+      scanObjectKeys(value, { scanValues: true });
+      continue;
+    }
+    scanPrimitive(value);
+  }
+
+  // Популярные флаги (без зависимости от конкретного набора полей).
+  scanObjectKeys(point, { scanValues: false });
+
+  const pickupSignal = pickupVotes.includes(true)
+    ? true
+    : pickupVotes.includes(false)
+      ? false
+      : null;
+  const dropoffSignal = dropoffVotes.includes(true)
+    ? true
+    : dropoffVotes.includes(false)
+      ? false
+      : null;
+
+  return { pickupSignal, dropoffSignal };
+}
+
+function logCdekPvzSamplesIfEnabled(points) {
+  if (String(process.env.DEBUG_CDEK_PVZ ?? '') !== '1') return;
+  if (!Array.isArray(points) || !points.length) return;
+
+  const bucket = {
+    pickupOnly: [],
+    pickupAndDropoff: [],
+    other: [],
+  };
+
+  for (const point of points) {
+    const { canPickup, canDropoff } = getCdekPointCapabilities(point);
+    if (canPickup && !canDropoff) bucket.pickupOnly.push(point);
+    else if (canPickup && canDropoff) bucket.pickupAndDropoff.push(point);
+    else bucket.other.push(point);
+  }
+
+  const pickFields = (point) => {
+    const fields = {
+      code: point?.code ?? null,
+      name: point?.name ?? null,
+      type: point?.type ?? point?.office_type ?? point?.officeType ?? null,
+      allowed_operation: point?.allowed_operation ?? point?.allowed_operations ?? null,
+      services: point?.services ?? null,
+      capabilities: getCdekPointCapabilities(point),
+    };
+    // Чтобы лог был компактным и безопасным.
+    if (Array.isArray(fields.allowed_operation) && fields.allowed_operation.length > 10) {
+      fields.allowed_operation = fields.allowed_operation.slice(0, 10);
+    }
+    if (Array.isArray(fields.services) && fields.services.length > 10) {
+      fields.services = fields.services.slice(0, 10);
+    }
+    return fields;
+  };
+
+  const logSamples = (title, list) => {
+    const samples = list.slice(0, 2).map(pickFields);
+    if (!samples.length) return;
+    console.log(`CDEK PVZ DEBUG: ${title} samples:`, samples);
+  };
+
+  console.log('CDEK PVZ DEBUG: counts', {
+    total: points.length,
+    pickupOnly: bucket.pickupOnly.length,
+    pickupAndDropoff: bucket.pickupAndDropoff.length,
+    other: bucket.other.length,
+  });
+
+  const listCodes = (list) =>
+    list
+      .slice(0, 5)
+      .map((point) => `${point?.code ?? 'unknown'}:${String(point?.name ?? '').slice(0, 80)}`);
+
+  console.log('CDEK PVZ DEBUG: codes', {
+    pickupOnly: listCodes(bucket.pickupOnly),
+    pickupAndDropoff: listCodes(bucket.pickupAndDropoff),
+    other: listCodes(bucket.other),
+  });
+
+  logSamples('pickup-only', bucket.pickupOnly);
+  logSamples('pickup+dropoff', bucket.pickupAndDropoff);
+  logSamples('non-pickup', bucket.other);
 }
 
 function normalizeAddress(raw) {
