@@ -1,9 +1,32 @@
 import type { DeliveryCalculateResponse, DeliveryPvzSearchResponse } from '@/types/delivery';
+import { buildAuthApiUrl } from '@/api/authApiBase';
 
-const AUTH_API_BASE = import.meta.env.VITE_AUTH_API_BASE ?? 'http://79.174.85.129:3000';
+const DELIVERY_PUBLIC_ERROR_MESSAGE = 'Ошибка, проверьте данные';
+
+export class DeliveryRequestError extends Error {
+  public readonly publicMessage: string;
+  public readonly debugMessage: string;
+  public readonly status?: number;
+
+  constructor(publicMessage: string, debugMessage: string, status?: number) {
+    super(publicMessage);
+    this.name = 'DeliveryRequestError';
+    this.publicMessage = publicMessage;
+    this.debugMessage = debugMessage;
+    this.status = status;
+  }
+}
+
+function extractErrorText(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const record = payload as Record<string, unknown>;
+  if (typeof record.error === 'string' && record.error.trim()) return record.error.trim();
+  if (typeof record.message === 'string' && record.message.trim()) return record.message.trim();
+  return null;
+}
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${AUTH_API_BASE}${path}`, {
+  const response = await fetch(buildAuthApiUrl(path), {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -12,15 +35,27 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || 'Delivery API request failed');
+    const rawText = await response.text();
+    let debugMessage = rawText || `HTTP ${response.status}`;
+    try {
+      const parsed = rawText ? (JSON.parse(rawText) as unknown) : null;
+      debugMessage = extractErrorText(parsed) ?? debugMessage;
+    } catch {
+      // ignore json parse errors
+    }
+
+    if (import.meta.env.DEV) {
+      console.error('[Delivery] API request failed', { path, status: response.status, debugMessage });
+    }
+
+    throw new DeliveryRequestError(DELIVERY_PUBLIC_ERROR_MESSAGE, debugMessage, response.status);
   }
 
   return response.json() as Promise<T>;
 }
 
 export async function searchPvz(provider: string, city: string, query: string) {
-  return request<DeliveryPvzSearchResponse>('/api/delivery/pvz/search', {
+  return request<DeliveryPvzSearchResponse>('/delivery/pvz/search', {
     method: 'POST',
     body: JSON.stringify({ provider, city, query }),
   });
@@ -34,11 +69,21 @@ export async function calculateDelivery(body: {
   address?: Record<string, unknown>;
   provider_metadata?: Record<string, unknown>;
 }, options?: Pick<RequestInit, 'signal'>) {
-  return request<DeliveryCalculateResponse>('/api/delivery/calculate', {
+  const result = await request<DeliveryCalculateResponse>('/delivery/calculate', {
     method: 'POST',
     body: JSON.stringify(body),
     signal: options?.signal,
   });
+
+  const debugMessage = extractErrorText(result);
+  if (debugMessage) {
+    if (import.meta.env.DEV) {
+      console.error('[Delivery] API returned error payload', { path: '/delivery/calculate', debugMessage });
+    }
+    throw new DeliveryRequestError(DELIVERY_PUBLIC_ERROR_MESSAGE, debugMessage);
+  }
+
+  return result;
 }
 
 export async function tariffs(body: {
@@ -49,7 +94,7 @@ export async function tariffs(body: {
   address?: Record<string, unknown>;
   provider_metadata?: Record<string, unknown>;
 }, options?: Pick<RequestInit, 'signal'>) {
-  return request<{ tariffs: unknown[] }>('/api/delivery/tariffs', {
+  return request<{ tariffs: unknown[] }>('/delivery/tariffs', {
     method: 'POST',
     body: JSON.stringify(body),
     signal: options?.signal,

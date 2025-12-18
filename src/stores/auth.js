@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import router from '@/router';
+import { buildAuthApiUrl } from '@/api/authApiBase';
 const SESSION_STORAGE_KEY = 'auth_token';
-const AUTH_API_BASE = import.meta.env.VITE_AUTH_API_BASE ?? 'http://79.174.85.129:3000';
 const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY ?? '';
 export const useAuthStore = defineStore('auth', {
     state: () => ({
@@ -37,7 +37,7 @@ export const useAuthStore = defineStore('auth', {
             if (!token)
                 return;
             try {
-                const me = await requestAuth('/api/auth/me', {
+                const me = await requestAuth('/auth/me', {
                     headers: { Authorization: `Bearer ${token}` },
                 });
                 this.user = buildAuthUser(me);
@@ -69,7 +69,7 @@ export const useAuthStore = defineStore('auth', {
                     password: payload.password,
                     ...(recaptchaToken ? { recaptchaToken } : {}),
                 };
-                const response = await requestAuth('/api/auth/register', {
+                const response = await requestAuth('/auth/register', {
                     method: 'POST',
                     body: JSON.stringify(body),
                 });
@@ -82,7 +82,7 @@ export const useAuthStore = defineStore('auth', {
         async login(payload) {
             this.validateCredentials(payload);
             try {
-                const response = await requestAuth('/api/auth/login', {
+                const response = await requestAuth('/auth/login', {
                     method: 'POST',
                     body: JSON.stringify(payload),
                 });
@@ -163,7 +163,7 @@ export const useAuthStore = defineStore('auth', {
         async sendVerifyCode() {
             if (!this.token)
                 throw new Error('Требуется авторизация.');
-            await requestAuth('/api/auth/send-verify-code', {
+            await requestAuth('/auth/send-verify-code', {
                 method: 'POST',
                 headers: this.buildAuthHeaders(),
             });
@@ -171,7 +171,7 @@ export const useAuthStore = defineStore('auth', {
         async verifyEmail(token) {
             if (!token)
                 throw new Error('Введите код подтверждения.');
-            await requestAuth('/api/auth/verify-email', {
+            await requestAuth('/auth/verify-email', {
                 method: 'POST',
                 body: JSON.stringify({ token }),
             });
@@ -182,7 +182,7 @@ export const useAuthStore = defineStore('auth', {
                 this.setError('Введите email.');
                 throw new Error('Введите email.');
             }
-            await requestAuth('/api/auth/request-password-reset', {
+            await requestAuth('/auth/request-password-reset', {
                 method: 'POST',
                 body: JSON.stringify({ email }),
             });
@@ -191,7 +191,7 @@ export const useAuthStore = defineStore('auth', {
             if (!payload.token || !payload.newPassword) {
                 throw new Error('Введите токен и новый пароль.');
             }
-            await requestAuth('/api/auth/reset-password', {
+            await requestAuth('/auth/reset-password', {
                 method: 'POST',
                 body: JSON.stringify(payload),
             });
@@ -219,7 +219,7 @@ async function requestAuth(path, options) {
         ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
         ...(options?.headers ?? {}),
     };
-    const response = await fetch(`${AUTH_API_BASE}${path}`, {
+    const response = await fetch(buildAuthApiUrl(path), {
         ...options,
         headers,
     });

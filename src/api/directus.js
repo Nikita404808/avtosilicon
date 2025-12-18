@@ -1,4 +1,4 @@
-const DEFAULT_DIRECTUS_URL = 'http://79.174.85.129:8055';
+const DEFAULT_DIRECTUS_URL = 'https://автосиликон.рф/directus';
 const PRODUCT_FIELDS = [
     '*',
     'car_model.id',

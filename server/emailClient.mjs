@@ -2,7 +2,8 @@ import { isMailerSendConfigured, sendMail as sendViaMailerSend } from './mailers
 import { isSmtpConfigured, sendMail as sendViaSmtp, verifySmtpConnection } from './smtpClient.mjs';
 
 const frontendBaseUrl =
-  process.env.FRONTEND_BASE_URL?.replace(/\/$/, '') || 'http://79.174.85.129:5173';
+  process.env.FRONTEND_BASE_URL?.replace(/\/$/, '') ||
+  (process.env.NODE_ENV === 'production' ? 'https://автосиликон.рф' : `http://localhost:${5173}`);
 
 function pickProvider() {
   if (isSmtpConfigured()) return 'smtp';

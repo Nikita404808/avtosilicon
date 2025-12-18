@@ -11,9 +11,9 @@ import type {
 } from '@/types';
 import productsMock from '@/mocks/products.json';
 import { useCartStore } from './cart';
+import { buildAuthApiUrl } from '@/api/authApiBase';
 
 const fallbackProducts = (productsMock as Array<Record<string, unknown>>).map(normalizeMockProduct);
-const AUTH_API_BASE = import.meta.env.VITE_AUTH_API_BASE ?? 'http://79.174.85.129:3000';
 
 type UserState = {
   profile: UserProfile | null;
@@ -192,7 +192,7 @@ export const useUserStore = defineStore('user', {
       if (!trimmed || trimmed.length > 100) {
         throw new Error('Введите корректное имя.');
       }
-      await requestAuthApi<AuthApiSuccess>('/api/users/me/name', this.authToken, {
+      await requestAuthApi<AuthApiSuccess>('/users/me/name', this.authToken, {
         method: 'PUT',
         body: JSON.stringify({ name: trimmed }),
       });
@@ -306,7 +306,7 @@ export const useUserStore = defineStore('user', {
       if (!this.authToken) return;
       this.isLoadingOrders = true;
       try {
-        const orders = await requestAuthApi<OrdersApiRow[]>('/api/orders', this.authToken);
+        const orders = await requestAuthApi<OrdersApiRow[]>('/orders', this.authToken);
         this.orderHistory = orders.map(normalizeOrderRow);
       } catch (error) {
         logAuthError(error);
@@ -317,7 +317,7 @@ export const useUserStore = defineStore('user', {
     async createOrder(order: Record<string, unknown>, useBonuses: boolean): Promise<CreateOrderResult> {
       if (!this.authToken) return { status: 'unauthorized' as const };
       try {
-        const response = await requestAuthApi<CreateOrderResponse>('/api/orders', this.authToken, {
+        const response = await requestAuthApi<CreateOrderResponse>('/orders', this.authToken, {
           method: 'POST',
           body: JSON.stringify({ order, useBonuses }),
         });
@@ -544,10 +544,7 @@ function formatNameFromEmail(email: string) {
 }
 
 async function requestAuthApi<T>(path: string, token: string, options?: RequestInit): Promise<T> {
-  if (!AUTH_API_BASE) {
-    throw new Error('AUTH_API_BASE is not configured');
-  }
-  const response = await fetch(`${AUTH_API_BASE}${path}`, {
+  const response = await fetch(buildAuthApiUrl(path), {
     ...options,
     headers: {
       'Content-Type': 'application/json',

@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia';
 import productsMock from '@/mocks/products.json';
 import { useCartStore } from './cart';
+import { buildAuthApiUrl } from '@/api/authApiBase';
 const fallbackProducts = productsMock.map(normalizeMockProduct);
-const AUTH_API_BASE = import.meta.env.VITE_AUTH_API_BASE ?? 'http://79.174.85.129:3000';
 const BANK_API_BASE = import.meta.env.VITE_BANK_API_BASE ?? '';
 const createDefaultState = () => ({
     profile: null,
@@ -109,7 +109,7 @@ export const useUserStore = defineStore('user', {
             if (!trimmed || trimmed.length > 100) {
                 throw new Error('Введите корректное имя.');
             }
-            await requestAuthApi('/api/users/me/name', this.authToken, {
+            await requestAuthApi('/users/me/name', this.authToken, {
                 method: 'PUT',
                 body: JSON.stringify({ name: trimmed }),
             });
@@ -232,7 +232,7 @@ export const useUserStore = defineStore('user', {
                 return;
             this.isLoadingOrders = true;
             try {
-                const orders = await requestAuthApi('/api/orders', this.authToken);
+                const orders = await requestAuthApi('/orders', this.authToken);
                 this.orderHistory = orders.map(normalizeOrderRow);
             }
             catch (error) {
@@ -246,7 +246,7 @@ export const useUserStore = defineStore('user', {
             if (!this.authToken)
                 return { status: 'unauthorized' };
             try {
-                const response = await requestAuthApi('/api/orders', this.authToken, {
+                const response = await requestAuthApi('/orders', this.authToken, {
                     method: 'POST',
                     body: JSON.stringify({ order, useBonuses }),
                 });
@@ -459,10 +459,7 @@ function formatNameFromEmail(email) {
     return email.split('@')[0] || email;
 }
 async function requestAuthApi(path, token, options) {
-    if (!AUTH_API_BASE) {
-        throw new Error('AUTH_API_BASE is not configured');
-    }
-    const response = await fetch(`${AUTH_API_BASE}${path}`, {
+    const response = await fetch(buildAuthApiUrl(path), {
         ...options,
         headers: {
             'Content-Type': 'application/json',

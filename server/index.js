@@ -23,7 +23,22 @@ const pool = new Pool({
 });
 
 const PORT = Number(process.env.PORT) || 3000;
-const ALLOWED_ORIGIN = process.env.CORS_ORIGIN || 'http://79.174.85.129:5173';
+const DEFAULT_FRONTEND_ORIGINS = ['https://автосиликон.рф', 'https://www.автосиликон.рф'];
+const ALLOWED_ORIGINS = (() => {
+  const raw = process.env.FRONTEND_ORIGIN;
+  const parsed = typeof raw === 'string'
+    ? raw
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
+
+  if (parsed.length > 0) return parsed;
+
+  if (process.env.NODE_ENV === 'production') return DEFAULT_FRONTEND_ORIGINS;
+
+  return [...DEFAULT_FRONTEND_ORIGINS, `http://localhost:${5173}`];
+})();
 const emailVerifyTtlMin = Number(process.env.EMAIL_VERIFY_TTL_MIN ?? 15);
 const passwordResetTtlMin = Number(process.env.PASSWORD_RESET_TTL_MIN ?? 30);
 const emailVerifyTtlMs = minutesToMs(emailVerifyTtlMin);
@@ -46,7 +61,7 @@ function generateVerificationCode(len = 5) {
 }
 
 const server = http.createServer(async (req, res) => {
-  setCors(res);
+  setCors(req, res);
 
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
@@ -139,7 +154,7 @@ const server = http.createServer(async (req, res) => {
   res.end(JSON.stringify({ message: 'Not found' }));
 });
 
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, () => {
   console.log(`Auth backend is listening on port ${PORT}`);
 });
 
@@ -777,13 +792,15 @@ function sanitizeEmail(value) {
   return value.trim().toLowerCase();
 }
 
-function setCors(res) {
-  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+function setCors(req, res) {
+  const origin = req.headers.origin;
+  const isAllowedOrigin = typeof origin === 'string' && ALLOWED_ORIGINS.includes(origin);
+  if (isAllowedOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+
   res.setHeader('Vary', 'Origin');
-  res.setHeader(
-    'Access-Control-Allow-Methods',
-    'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-  );
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 }
 
