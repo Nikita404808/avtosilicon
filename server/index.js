@@ -504,13 +504,27 @@ async function handleDeliveryCalculate(req, res) {
     sendJson(res, 200, quote);
   } catch (error) {
     const error_code = extractErrorCode(error);
+    const detail = extractErrorDetail(error);
     if (isClientError(error)) {
-      sendJson(res, 400, { message: error.message, ...(error_code != null ? { error_code } : {}) });
+      sendJson(res, 400, {
+        message: error.message,
+        ...(error_code != null ? { error_code } : {}),
+        ...(detail != null ? { detail } : {}),
+      });
+      return;
+    }
+    if (isConfigError(error)) {
+      sendJson(res, 500, {
+        message: error.message,
+        ...(error_code != null ? { error_code } : {}),
+        ...(detail != null ? { detail } : {}),
+      });
       return;
     }
     sendJson(res, 500, {
       message: 'Не удалось рассчитать доставку.',
       ...(error_code != null ? { error_code } : {}),
+      ...(detail != null ? { detail } : {}),
       error: String(error?.message ?? error),
     });
   }
@@ -566,13 +580,27 @@ async function handleDeliveryTariffs(req, res) {
     sendJson(res, 200, { tariffs });
   } catch (error) {
     const error_code = extractErrorCode(error);
+    const detail = extractErrorDetail(error);
     if (isClientError(error)) {
-      sendJson(res, 400, { message: error.message, ...(error_code != null ? { error_code } : {}) });
+      sendJson(res, 400, {
+        message: error.message,
+        ...(error_code != null ? { error_code } : {}),
+        ...(detail != null ? { detail } : {}),
+      });
+      return;
+    }
+    if (isConfigError(error)) {
+      sendJson(res, 500, {
+        message: error.message,
+        ...(error_code != null ? { error_code } : {}),
+        ...(detail != null ? { detail } : {}),
+      });
       return;
     }
     sendJson(res, 500, {
       message: 'Не удалось получить список тарифов.',
       ...(error_code != null ? { error_code } : {}),
+      ...(detail != null ? { detail } : {}),
       error: String(error?.message ?? error),
     });
   }
@@ -831,6 +859,16 @@ function isClientError(error) {
       /^(RUSPOST|CDEK):/i.test(error.message) ||
       /обязател|недопустим|не удалось/i.test(error.message))
   );
+}
+
+function extractErrorDetail(error) {
+  if (!error || typeof error !== 'object') return null;
+  return error.detail ?? null;
+}
+
+function isConfigError(error) {
+  if (!(error instanceof Error)) return false;
+  return /не задан в окружении/i.test(error.message) || /^RUSPOST_ACCEPTANCE_INDEX\b/.test(error.message);
 }
 
 function extractErrorCode(error) {

@@ -1,6 +1,8 @@
 const BASE_URL = process.env.RUSPOST_API_BASE || 'https://tariff.pochta.ru';
-const originIndex = process.env.RUSPOST_ORIGIN_INDEX;
+const officeIndex = process.env.RUSPOST_OFFICE_INDEX;
+const acceptanceIndex = process.env.RUSPOST_ACCEPTANCE_INDEX;
 const objectCode = process.env.RUSPOST_OBJECT_CODE;
+const isDev = process.env.NODE_ENV !== 'production';
 
 export async function searchPvz({ query, city, lat, lon }) {
   const normalizedCity = typeof city === 'string' ? city.trim() : '';
@@ -38,19 +40,26 @@ export async function calculate({
   provider_metadata,
 }) {
   void provider;
+  void provider_metadata;
 
   const weightKg = Number(total_weight);
   if (!Number.isFinite(weightKg) || weightKg <= 0) {
     throw new Error('RUSPOST: вес отправления обязателен.');
   }
 
-  const fromIndex = resolveFromIndex(provider_metadata);
+  const office = normalizeEnvPostalIndexOptional(officeIndex);
+  const acceptance = requireAcceptanceIndex();
+  const fromIndex = acceptance;
   const object = requireEnv(objectCode, 'RUSPOST_OBJECT_CODE');
 
   const toIndex =
     type === 'pvz'
       ? normalizePostalIndex(pickup_point_id, 'pickup_point_id')
       : normalizePostalIndex(normalizeAddress(address).postal_code, 'address.postal_code');
+
+  if (isDev) {
+    console.log('RUSPOST: indexes', { office, acceptance, from: fromIndex, to: toIndex });
+  }
 
   const weightGrams = toWeightGrams(weightKg);
   const url = new URL(`${BASE_URL}/v2/calculate/tariff/delivery`);
@@ -75,12 +84,28 @@ export async function calculate({
   }
 
   const data = await safeJson(response);
-  const apiError = extractApiError(data);
-  if (apiError?.message) {
-    const error = new Error(`RUSPOST: ${apiError.message}`);
-    if (apiError.code != null) {
-      error.error_code = apiError.code;
+  const apiErrors = extractApiErrors(data);
+  if (apiErrors.length) {
+    const acceptanceError = apiErrors.find((item) => item?.code === 2004);
+    if (acceptanceError) {
+      const error = new Error(
+        'RUSPOST: from-index is not in acceptance list (code 2004). Check RUSPOST_ACCEPTANCE_INDEX',
+      );
+      error.error_code = 2004;
+      error.detail = { code: acceptanceError.code, msg: acceptanceError.msg, errors: apiErrors };
+      throw error;
     }
+
+    const message = apiErrors
+      .map((item) => item?.msg)
+      .filter(Boolean)
+      .join('; ');
+    const error = new Error(`RUSPOST: ${message || 'ошибка API.'}`);
+    const firstCode = apiErrors.find((item) => item?.code != null)?.code ?? null;
+    if (firstCode != null) {
+      error.error_code = firstCode;
+    }
+    error.detail = { errors: apiErrors };
     throw error;
   }
 
@@ -94,7 +119,10 @@ export async function calculate({
     delivery_currency: 'RUB',
     delivery_eta: formatEta(data),
     tariff_code: object ?? null,
-    provider_metadata: data,
+    provider_metadata: {
+      ...data,
+      _local: { office, acceptance, from: fromIndex, to: toIndex },
+    },
   };
 }
 
@@ -118,14 +146,28 @@ export async function listTariffs(options) {
   }
 }
 
-function resolveFromIndex(providerMetadata) {
-  const candidate = providerMetadata?.from_index ?? providerMetadata?.fromIndex ?? null;
-  const raw = typeof candidate === 'string' ? candidate.trim() : candidate == null ? '' : String(candidate).trim();
-  if (raw) {
-    const digits = raw.replace(/\s+/g, '');
-    if (/^\d{5,6}$/.test(digits)) return digits;
+function requireAcceptanceIndex() {
+  const raw = typeof acceptanceIndex === 'string' ? acceptanceIndex.trim() : acceptanceIndex;
+  if (!raw) {
+    throw new Error(
+      'RUSPOST_ACCEPTANCE_INDEX отсутствует. Укажите индекс места приёма (например 413840).',
+    );
   }
-  return requireEnv(originIndex, 'RUSPOST_ORIGIN_INDEX');
+
+  const digits = String(raw).replace(/\s+/g, '');
+  if (!/^\d{5,6}$/.test(digits)) {
+    throw new Error(
+      'RUSPOST_ACCEPTANCE_INDEX некорректен. Укажите индекс места приёма числом (например 413840).',
+    );
+  }
+  return digits;
+}
+
+function normalizeEnvPostalIndexOptional(value) {
+  const raw = typeof value === 'string' ? value.trim() : value == null ? '' : String(value).trim();
+  if (!raw) return null;
+  const digits = raw.replace(/\s+/g, '');
+  return /^\d{5,6}$/.test(digits) ? digits : null;
 }
 
 function normalizeAddress(raw) {
@@ -168,24 +210,31 @@ function toWeightGrams(weightKg) {
   return Math.max(1, Math.ceil(weight * 1000));
 }
 
-function extractApiError(payload) {
+function extractApiErrors(payload) {
+  const normalized = [];
+
   if (!payload || typeof payload !== 'object') {
-    return { code: null, message: 'некорректный ответ API.' };
+    return [{ code: null, msg: 'некорректный ответ API.' }];
   }
+
   const errors = payload.errors;
   if (Array.isArray(errors) && errors.length) {
-    const message = errors
-      .map((item) => (item && typeof item === 'object' ? item.msg ?? item.message : String(item)))
-      .filter(Boolean)
-      .join('; ');
-    const code = resolveErrorCode(errors[0]);
-    return message ? { code, message } : null;
+    for (const item of errors) {
+      if (item && typeof item === 'object') {
+        const msg = (item.msg ?? item.message ?? '').toString().trim();
+        normalized.push({ code: resolveErrorCode(item), msg: msg || 'ошибка API.' });
+      } else if (item != null) {
+        normalized.push({ code: null, msg: String(item) });
+      }
+    }
+    return normalized.filter((item) => item.msg);
   }
+
   const message = payload.msg ?? payload.message ?? null;
   if (typeof message === 'string' && message.trim()) {
-    return { code: resolveErrorCode(payload), message: message.trim() };
+    return [{ code: resolveErrorCode(payload), msg: message.trim() }];
   }
-  return null;
+  return [];
 }
 
 function resolveErrorCode(value) {
