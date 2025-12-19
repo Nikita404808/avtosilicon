@@ -14,6 +14,14 @@ export default defineConfig({
     },
   },
   server: {
+    host: true,
+    port: 5173,
+    allowedHosts: [
+      'автосиликон.рф',
+      'www.автосиликон.рф',
+      'xn--80aesakeqdezj.xn--p1ai',
+      'www.xn--80aesakeqdezj.xn--p1ai',
+    ],
     proxy: {
       '/api': {
         target: devBackendTarget,
