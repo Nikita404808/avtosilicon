@@ -82,14 +82,12 @@ app.use((err, req, res, next) => {
   next(err);
 });
 
-app.get('/health*', async (req, res) => {
+app.get('/health', async (req, res) => {
   try {
     await pool.query('SELECT 1');
-    res.status(200).setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.end(JSON.stringify({ ok: true }));
+    res.status(200).json({ ok: true });
   } catch (error) {
-    res.status(500).setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.end(JSON.stringify({ ok: false, error: 'db_unreachable' }));
+    res.status(500).json({ ok: false, error: 'db_unreachable' });
   }
 });
 
