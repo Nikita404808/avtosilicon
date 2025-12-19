@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import http from 'node:http';
+import express from 'express';
 import crypto from 'node:crypto';
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
@@ -60,101 +60,67 @@ function generateVerificationCode(len = 5) {
   return out;
 }
 
-const server = http.createServer(async (req, res) => {
-  setCors(req, res);
+const app = express();
 
+app.use((req, res, next) => {
+  setCors(req, res);
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
     res.end();
     return;
   }
-
-  const requestUrl = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-
-  if (req.method === 'GET' && requestUrl.pathname.startsWith('/health')) {
-    try {
-      await pool.query('SELECT 1');
-      res.statusCode = 200;
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.end(JSON.stringify({ ok: true }));
-    } catch (error) {
-      res.statusCode = 500;
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.end(JSON.stringify({ ok: false, error: 'db_unreachable' }));
-    }
-    return;
-  }
-
-  if (req.method === 'POST' && requestUrl.pathname === '/api/auth/register') {
-    await handleRegister(req, res);
-    return;
-  }
-
-  if (req.method === 'POST' && requestUrl.pathname === '/api/auth/login') {
-    await handleLogin(req, res);
-    return;
-  }
-
-  if (req.method === 'GET' && requestUrl.pathname === '/api/auth/me') {
-    await handleCurrentUser(req, res);
-    return;
-  }
-
-  if (req.method === 'POST' && requestUrl.pathname === '/api/auth/send-verify-code') {
-    await handleSendVerifyCode(req, res);
-    return;
-  }
-
-  if (req.method === 'POST' && requestUrl.pathname === '/api/auth/verify-email') {
-    await handleVerifyEmail(req, res);
-    return;
-  }
-
-  if (req.method === 'POST' && requestUrl.pathname === '/api/auth/request-password-reset') {
-    await handleRequestPasswordReset(req, res);
-    return;
-  }
-
-  if (req.method === 'POST' && requestUrl.pathname === '/api/auth/reset-password') {
-    await handleResetPassword(req, res);
-    return;
-  }
-
-  if (req.method === 'POST' && requestUrl.pathname === '/api/delivery/pvz/search') {
-    await handleDeliveryPvzSearch(req, res, requestUrl);
-    return;
-  }
-
-  if (req.method === 'POST' && requestUrl.pathname === '/api/delivery/calculate') {
-    await handleDeliveryCalculate(req, res);
-    return;
-  }
-
-  if (req.method === 'POST' && requestUrl.pathname === '/api/delivery/tariffs') {
-    await handleDeliveryTariffs(req, res);
-    return;
-  }
-
-  if (req.method === 'PUT' && requestUrl.pathname === '/api/users/me/name') {
-    await handleUpdateName(req, res);
-    return;
-  }
-
-  if (req.method === 'POST' && requestUrl.pathname === '/api/orders') {
-    await handleCreateOrder(req, res);
-    return;
-  }
-
-  if (req.method === 'GET' && requestUrl.pathname === '/api/orders') {
-    await handleGetOrders(req, res);
-    return;
-  }
-
-  res.writeHead(404, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ message: 'Not found' }));
+  next();
 });
 
-server.listen(PORT, () => {
+app.use(express.json());
+
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && 'body' in err) {
+    sendJson(res, 400, { message: 'Невалидный JSON в теле запроса.' });
+    return;
+  }
+  next(err);
+});
+
+app.get('/health*', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.status(200).setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.end(JSON.stringify({ ok: true }));
+  } catch (error) {
+    res.status(500).setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.end(JSON.stringify({ ok: false, error: 'db_unreachable' }));
+  }
+});
+
+const authRouter = express.Router();
+
+authRouter.post('/register', (req, res) => handleRegister(req, res));
+authRouter.post('/login', (req, res) => handleLogin(req, res));
+authRouter.get('/me', (req, res) => handleCurrentUser(req, res));
+authRouter.post('/send-verify-code', (req, res) => handleSendVerifyCode(req, res));
+authRouter.post('/verify-email', (req, res) => handleVerifyEmail(req, res));
+authRouter.post('/request-password-reset', (req, res) => handleRequestPasswordReset(req, res));
+authRouter.post('/reset-password', (req, res) => handleResetPassword(req, res));
+
+app.use('/api/auth', authRouter);
+
+app.post('/api/delivery/pvz/search', (req, res) => {
+  const requestUrl = new URL(req.originalUrl ?? req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+  return handleDeliveryPvzSearch(req, res, requestUrl);
+});
+
+app.post('/api/delivery/calculate', (req, res) => handleDeliveryCalculate(req, res));
+app.post('/api/delivery/tariffs', (req, res) => handleDeliveryTariffs(req, res));
+app.put('/api/users/me/name', (req, res) => handleUpdateName(req, res));
+app.post('/api/orders', (req, res) => handleCreateOrder(req, res));
+app.get('/api/orders', (req, res) => handleGetOrders(req, res));
+
+app.use((req, res) => {
+  sendJson(res, 404, { message: 'Not found' });
+});
+
+const server = app.listen(PORT, () => {
   console.log(`Auth backend is listening on port ${PORT}`);
 });
 
@@ -772,6 +738,10 @@ async function handleGetOrders(req, res) {
 }
 
 async function readJsonBody(req) {
+  if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
+    return req.body;
+  }
+
   const chunks = [];
   for await (const chunk of req) {
     chunks.push(chunk);
