@@ -56,7 +56,6 @@ const addToCart = () => {
     },
     weight: normalizeWeightKgFromProduct(props.product.weight),
   });
-  cartStore.toggleCart(true);
 };
 </script>
 
@@ -80,6 +79,7 @@ const addToCart = () => {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  margin-top: var(--space-2);
 
   img {
     width: 100%;
@@ -88,17 +88,27 @@ const addToCart = () => {
   }
 }
 
+.card__body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 .card__title {
   display: block;
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.4;
   min-height: 3em;
+  flex: 1;
 }
 
 .card__price {
   font-size: 20px;
   font-weight: 700;
+  margin-left: auto;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .card__button {

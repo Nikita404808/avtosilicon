@@ -11,6 +11,10 @@
 </template>
 
 <script setup lang="ts">
+import { useRoute } from 'vue-router';
+import { useSeo } from '@/composables/useSeo';
+import { buildCanonicalFromRoute } from '@/services/seo';
+
 const sections = [
   {
     title: '1. Общие положения',
@@ -48,6 +52,15 @@ const sections = [
     ],
   },
 ];
+
+const route = useRoute();
+
+useSeo({
+  title: 'Политика конфиденциальности — Автосиликон',
+  description:
+    'Политика конфиденциальности Автосиликон: как обрабатываются персональные данные, для чего используются и как отозвать согласие на обработку.',
+  canonical: buildCanonicalFromRoute(route),
+});
 </script>
 
 <style scoped lang="scss">

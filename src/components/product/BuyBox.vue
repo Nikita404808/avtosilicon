@@ -96,19 +96,23 @@ const addToCart = () => {
 
 .buybox__header {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
 
   h2 {
     margin: 0;
     font-size: var(--fz-h2);
     line-height: var(--lh-h2);
+    flex: 1;
   }
 }
 
 .buybox__price {
   font-size: 32px;
   font-weight: 700;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .buybox__controls {
@@ -128,21 +132,52 @@ const addToCart = () => {
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   overflow: hidden;
+  background: rgba(0, 0, 0, 0.02);
 
   button {
     width: 44px;
     height: 44px;
     border: none;
-    background: rgba(0, 0, 0, 0.04);
+    background: transparent;
     font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary);
+    transition: background-color 120ms ease, color 120ms ease;
+
+    &:hover {
+      background: rgba(0, 0, 0, 0.06);
+    }
+
+    &:focus-visible {
+      outline: none;
+      box-shadow: inset 0 0 0 2px rgba(255, 102, 0, 0.2);
+    }
   }
 
   input {
-    width: 64px;
+    width: 72px;
     text-align: center;
     border: none;
     font-size: 18px;
+    font-weight: 600;
+    background: transparent;
+    padding: 0 var(--space-2);
   }
+}
+
+.buybox__stepper button + input,
+.buybox__stepper input + button {
+  border-left: 1px solid var(--border);
+}
+
+.buybox__stepper input[type='number']::-webkit-inner-spin-button,
+.buybox__stepper input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.buybox__stepper input[type='number'] {
+  -moz-appearance: textfield;
 }
 
 .buybox__cta {
@@ -181,6 +216,11 @@ const addToCart = () => {
   .buybox {
     border-radius: var(--radius-lg);
     padding: var(--space-4);
+  }
+
+  .buybox__header {
+    flex-direction: column;
+    gap: var(--space-3);
   }
 
   .buybox__price {

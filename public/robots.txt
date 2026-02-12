@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /account
+Disallow: /auth
+Disallow: /cart/checkout
+Disallow: /reset-password
+
+Sitemap: https://автосиликон.рф/sitemap.xml
+Host: автосиликон.рф

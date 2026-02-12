@@ -219,12 +219,34 @@ async function getToken() {
 
 async function resolveCityCode(cityQuery) {
   if (!cityQuery) return null;
-  if (/^\d+$/.test(String(cityQuery))) return cityQuery;
+  const normalized = String(cityQuery).trim();
+  if (/^\d{5,6}$/.test(normalized)) {
+    const byPostal = await resolveCityCodeByPostal(normalized);
+    if (byPostal) return byPostal;
+  }
+  if (/^\d+$/.test(normalized)) return normalized;
 
   const token = await getToken();
   const url = new URL(`${BASE_URL}/location/cities`);
-  url.searchParams.set('city', cityQuery);
+  url.searchParams.set('city', normalized);
   url.searchParams.set('size', '5');
+
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    return null;
+  }
+  const cities = await response.json();
+  const match = Array.isArray(cities) ? cities[0] : null;
+  return match?.code ?? null;
+}
+
+async function resolveCityCodeByPostal(postalCode) {
+  const token = await getToken();
+  const url = new URL(`${BASE_URL}/location/cities`);
+  url.searchParams.set('postal_code', postalCode);
+  url.searchParams.set('size', '1');
 
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },

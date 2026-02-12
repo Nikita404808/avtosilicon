@@ -154,6 +154,7 @@ const isSavingProfile = ref(false);
 const statusDictionary = {
   delivered: 'Доставлен',
   processing: 'В обработке',
+  paid: 'Оплачен',
   cancelled: 'Отменён',
 } as const;
 
@@ -195,7 +196,7 @@ const submitProfile = async () => {
   isSavingProfile.value = true;
   try {
     await userStore.updateName(trimmedName);
-    await userStore.updateProfile({ phone: profileDraft.phone });
+    await userStore.updatePhone(profileDraft.phone);
     profileDraft.name = trimmedName;
     baselineProfile.name = trimmedName;
     baselineProfile.phone = profileDraft.phone ?? '';
@@ -527,6 +528,10 @@ watch(activeTab, (next) => {
   background: rgba(0, 0, 0, 0.06);
 
   &[data-status='delivered'] {
+    background: rgba(31, 157, 111, 0.15);
+    color: var(--success);
+  }
+  &[data-status='paid'] {
     background: rgba(31, 157, 111, 0.15);
     color: var(--success);
   }

@@ -4,6 +4,8 @@ import crypto from 'node:crypto';
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
 import { sendVerificationEmail, sendPasswordResetEmail } from './emailClient.mjs';
+import { createOzonBankAdapter, normalizeOzonBankConfig } from './payments/ozonBankAdapter.mjs';
+import { createAlfaBankAdapter, normalizeAlfaBankConfig } from './payments/alfaBankAdapter.mjs';
 import {
   searchPvz as searchDeliveryPvz,
   calculate as calculateDelivery,
@@ -39,6 +41,27 @@ const ALLOWED_ORIGINS = (() => {
 
   return [...DEFAULT_FRONTEND_ORIGINS, `http://localhost:${5173}`];
 })();
+const OZON_PAYMENT_PROVIDER = 'ozon_bank';
+const ALFA_PAYMENT_PROVIDER = 'alfa_bank';
+const PAYMENT_PROVIDER = (process.env.PAYMENT_PROVIDER || ALFA_PAYMENT_PROVIDER).trim();
+
+const ozonBankConfig = normalizeOzonBankConfig(process.env);
+const ozonBankAdapter = createOzonBankAdapter(ozonBankConfig);
+const ozonConfigIssues = collectOzonPaymentConfigIssues(ozonBankConfig);
+if (PAYMENT_PROVIDER === OZON_PAYMENT_PROVIDER && ozonConfigIssues.length > 0) {
+  console.warn(
+    `OZON Bank config is incomplete: ${ozonConfigIssues.join(', ')}`,
+  );
+}
+
+const alfaBankConfig = normalizeAlfaBankConfig(process.env);
+const alfaBankAdapter = createAlfaBankAdapter(alfaBankConfig);
+const alfaConfigIssues = collectAlfaPaymentConfigIssues(alfaBankConfig);
+if (PAYMENT_PROVIDER === ALFA_PAYMENT_PROVIDER && alfaConfigIssues.length > 0) {
+  console.warn(
+    `Alfa Bank config is incomplete: ${alfaConfigIssues.join(', ')}`,
+  );
+}
 const emailVerifyTtlMin = Number(process.env.EMAIL_VERIFY_TTL_MIN ?? 15);
 const passwordResetTtlMin = Number(process.env.PASSWORD_RESET_TTL_MIN ?? 30);
 const emailVerifyTtlMs = minutesToMs(emailVerifyTtlMin);
@@ -49,6 +72,13 @@ const sessions = new Map();
 const verifyThrottleMap = new Map();
 const resetThrottleMap = new Map();
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
+
+try {
+  await ensureOrderPaymentColumns();
+  await ensureUsersPhoneColumn();
+} catch (error) {
+  process.exit(1);
+}
 
 function generateVerificationCode(len = 5) {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -72,7 +102,8 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
+app.use(express.json({ verify: rawBodySaver }));
+app.use(express.urlencoded({ extended: false, verify: rawBodySaver }));
 
 app.use((err, req, res, next) => {
   if (err instanceof SyntaxError && 'body' in err) {
@@ -110,9 +141,16 @@ app.post('/api/delivery/pvz/search', (req, res) => {
 
 app.post('/api/delivery/calculate', (req, res) => handleDeliveryCalculate(req, res));
 app.post('/api/delivery/tariffs', (req, res) => handleDeliveryTariffs(req, res));
+app.get('/api/users/me', (req, res) => handleCurrentUser(req, res));
+app.get('/api/users/me/addresses', (req, res) => handleGetUserAddresses(req, res));
+app.post('/api/users/me/addresses', (req, res) => handleAddUserAddress(req, res));
+app.post('/api/users/me/addresses/session', (req, res) => handleAddressSession(req, res));
 app.put('/api/users/me/name', (req, res) => handleUpdateName(req, res));
+app.put('/api/users/me/phone', (req, res) => handleUpdatePhone(req, res));
 app.post('/api/orders', (req, res) => handleCreateOrder(req, res));
 app.get('/api/orders', (req, res) => handleGetOrders(req, res));
+app.post('/api/payments/ozon/webhook', (req, res) => handleOzonWebhook(req, res));
+app.all('/api/payments/alfa/callback', (req, res) => handleAlfaCallback(req, res));
 
 app.use((req, res) => {
   sendJson(res, 404, { message: 'Not found' });
@@ -183,7 +221,10 @@ async function handleLogin(req, res) {
       return;
     }
 
-    const queryResult = await pool.query('SELECT id, email, password_hash, name, email_verified, bonus_balance FROM users WHERE email = $1', [email]);
+    const queryResult = await pool.query(
+      'SELECT id, email, password_hash, name, phone, email_verified, bonus_balance FROM users WHERE email = $1',
+      [email],
+    );
 
     if (queryResult.rowCount === 0) {
       sendJson(res, 401, { message: 'Неверный email или пароль.' });
@@ -609,6 +650,39 @@ async function handleUpdateName(req, res) {
   }
 }
 
+async function handleUpdatePhone(req, res) {
+  try {
+    const authUser = await getAuthenticatedUser(req, res);
+    if (!authUser) return;
+
+    const payload = await readJsonBody(req);
+    const rawPhone = typeof payload.phone === 'string' ? payload.phone.trim() : '';
+    const digits = rawPhone.replace(/\D/g, '');
+
+    if (!rawPhone) {
+      await pool.query('UPDATE users SET phone = NULL, updated_at = NOW() WHERE id = $1', [
+        authUser.id,
+      ]);
+      sendJson(res, 200, { success: true, phone: null });
+      return;
+    }
+
+    if (digits.length < 10 || digits.length > 15) {
+      sendJson(res, 400, { message: 'Некорректный телефон.' });
+      return;
+    }
+
+    await pool.query('UPDATE users SET phone = $1, updated_at = NOW() WHERE id = $2', [
+      rawPhone,
+      authUser.id,
+    ]);
+
+    sendJson(res, 200, { success: true, phone: rawPhone });
+  } catch (error) {
+    handleServerError(res, error);
+  }
+}
+
 async function handleCreateOrder(req, res) {
   try {
     const authUser = await getAuthenticatedUser(req, res);
@@ -660,19 +734,40 @@ async function handleCreateOrder(req, res) {
       }
 
       const currentBalance = Number(balanceResult.rows[0].bonus_balance) || 0;
-      const { usedBonus, bonusEarned, payable, newBalance } = calculateBonuses({
+      const { usedBonus, bonusEarned, payable } = calculateBonuses({
         orderTotal: fullOrderTotal,
         bonusBalance: currentBalance,
         useBonuses,
       });
+      const reservedBalance = usedBonus > 0
+        ? Math.max(0, currentBalance - usedBonus)
+        : currentBalance;
+
+      const paymentDraft = {
+        provider: PAYMENT_PROVIDER,
+        status: 'pending',
+        payable_amount: payable,
+        payment_url: null,
+        payload: null,
+        response: null,
+        webhook: null,
+      };
 
       const orderPayload = enrichOrderData(order, {
         usedBonus,
         bonusEarned,
         payable,
         orderTotal: fullOrderTotal,
-        newBalance,
+        newBalance: reservedBalance,
       }, { totalWeight, deliveryPrice, delivery: deliveryInfo.value, itemsTotal });
+      orderPayload.payment = paymentDraft;
+      orderPayload.status = orderPayload.status ?? 'processing';
+      orderPayload.bonus = {
+        ...(orderPayload.bonus && typeof orderPayload.bonus === 'object' ? orderPayload.bonus : {}),
+        spentReserved: usedBonus > 0,
+        spentRestoredAt: null,
+        earnedAppliedAt: null,
+      };
 
       const insertResult = await client.query(
         `
@@ -683,25 +778,56 @@ async function handleCreateOrder(req, res) {
         [authUser.id, JSON.stringify(orderPayload), usedBonus, bonusEarned, payable],
       );
 
-      await client.query(
-        `
-          UPDATE users
-          SET bonus_balance = $1,
-              updated_at = NOW()
-          WHERE id = $2
-        `,
-        [newBalance, authUser.id],
-      );
+      if (usedBonus > 0) {
+        await client.query(
+          `
+            UPDATE users
+            SET bonus_balance = $1,
+                updated_at = NOW()
+            WHERE id = $2
+          `,
+          [reservedBalance, authUser.id],
+        );
+      }
 
       await client.query('COMMIT');
 
+      const orderId = insertResult.rows[0]?.id ?? null;
+      if (!orderId) {
+        sendJson(res, 500, { message: 'Не удалось создать заказ.' });
+        return;
+      }
+
+      const paymentInit = await initiatePayment(orderId, payable, orderPayload, authUser);
+      if (!paymentInit.ok) {
+        const sideEffectResult = await applyPaymentOutcomeEffects(
+          orderId,
+          paymentInit.status ?? 'error',
+        );
+        if (!sideEffectResult.ok) {
+          console.error('Failed to apply payment side effects after init error', {
+            orderId,
+            code: sideEffectResult.code,
+          });
+        }
+        sendJson(res, paymentInit.httpStatus ?? 502, {
+          success: false,
+          orderId,
+          message: 'Ошибка оплаты, попробуйте позже.',
+          payment_status: paymentInit.status ?? null,
+        });
+        return;
+      }
+
       sendJson(res, 200, {
         success: true,
-        orderId: insertResult.rows[0]?.id ?? null,
+        orderId,
         usedBonus,
         bonusEarned,
         payable,
-        newBonusBalance: newBalance,
+        newBonusBalance: reservedBalance,
+        payment_url: paymentInit.paymentUrl ?? null,
+        payment_status: paymentInit.status ?? null,
       });
     } catch (innerError) {
       await client.query('ROLLBACK');
@@ -721,7 +847,18 @@ async function handleGetOrders(req, res) {
 
     const ordersResult = await pool.query(
       `
-        SELECT id, order_data, created_at, bonus_spent, bonus_earned, payable_amount
+        SELECT
+          id,
+          order_data,
+          created_at,
+          bonus_spent,
+          bonus_earned,
+          payable_amount,
+          payment_provider,
+          payment_status,
+          payment_payload,
+          payment_response,
+          payment_webhook
         FROM order_history
         WHERE user_id = $1
         ORDER BY created_at DESC
@@ -733,6 +870,32 @@ async function handleGetOrders(req, res) {
   } catch (error) {
     handleServerError(res, error);
   }
+}
+
+async function handleGetUserAddresses(req, res) {
+  const authUser = await getAuthenticatedUser(req, res);
+  if (!authUser) return;
+  sendJson(res, 200, []);
+}
+
+async function handleAddUserAddress(req, res) {
+  const authUser = await getAuthenticatedUser(req, res);
+  if (!authUser) return;
+  const payload = await readJsonBody(req);
+  const address = {
+    id: `local-${Date.now()}`,
+    label: payload?.label ?? payload?.addressLine ?? 'Адрес',
+    isDefault: true,
+    lastSyncedAt: new Date().toISOString(),
+    details: payload ?? null,
+  };
+  sendJson(res, 200, address);
+}
+
+async function handleAddressSession(req, res) {
+  const authUser = await getAuthenticatedUser(req, res);
+  if (!authUser) return;
+  sendJson(res, 200, { redirectUrl: null });
 }
 
 async function readJsonBody(req) {
@@ -816,7 +979,7 @@ async function getAuthenticatedUser(req, res, options = {}) {
 
   const fields = options.includeSensitive
     ? '*'
-    : 'id, email, name, email_verified, bonus_balance';
+    : 'id, email, name, phone, email_verified, bonus_balance';
   const userResult = await pool.query(`SELECT ${fields} FROM users WHERE id = $1`, [session.userId]);
 
   if (userResult.rowCount === 0) {
@@ -873,6 +1036,7 @@ function buildAuthResponse(user, token) {
     id: String(user.id),
     email: user.email,
     name: user.name ?? null,
+    phone: user.phone ?? null,
     email_verified: Boolean(user.email_verified),
     bonus_balance: Number(user.bonus_balance) || 0,
     ...(token ? { token } : {}),
@@ -1015,4 +1179,675 @@ function validateDelivery(rawDelivery) {
   }
 
   return { ok: true, value: delivery };
+}
+
+async function ensureOrderPaymentColumns() {
+  try {
+    await pool.query(`
+      ALTER TABLE IF EXISTS order_history
+        ADD COLUMN IF NOT EXISTS payment_provider TEXT,
+        ADD COLUMN IF NOT EXISTS payment_status TEXT,
+        ADD COLUMN IF NOT EXISTS payment_payload JSONB,
+        ADD COLUMN IF NOT EXISTS payment_response JSONB,
+        ADD COLUMN IF NOT EXISTS payment_webhook JSONB;
+    `);
+  } catch (error) {
+    console.error('Failed to ensure payment columns:', error);
+    throw error;
+  }
+}
+
+async function ensureUsersPhoneColumn() {
+  try {
+    await pool.query(`
+      ALTER TABLE IF EXISTS users
+        ADD COLUMN IF NOT EXISTS phone TEXT;
+    `);
+  } catch (error) {
+    console.error('Failed to ensure users phone column:', error);
+    throw error;
+  }
+}
+
+function rawBodySaver(req, res, buf) {
+  req.rawBody = buf?.toString('utf8') ?? '';
+}
+
+function collectOzonPaymentConfigIssues(config) {
+  const issues = [];
+  if (!config?.merchantId) issues.push('OZON_BANK_MERCHANT_ID');
+  if (!config?.apiSecret) issues.push('OZON_BANK_API_SECRET');
+  if (!config?.webhookSecret) issues.push('OZON_BANK_WEBHOOK_SECRET');
+  if (!config?.successUrl) issues.push('PAYMENT_SUCCESS_URL');
+  if (!config?.failUrl) issues.push('PAYMENT_FAIL_URL');
+  if (!config?.apiBase) issues.push('OZON_BANK_API_BASE');
+  return issues;
+}
+
+function collectAlfaPaymentConfigIssues(config) {
+  const issues = [];
+  if (!config?.apiBase) issues.push('ALFA_API_BASE');
+  if (!config?.returnUrl) issues.push('PAYMENT_SUCCESS_URL');
+  if (!config?.failUrl) issues.push('PAYMENT_FAIL_URL');
+  if (!config?.token && !config?.userName) issues.push('ALFA_USER_NAME');
+  if (!config?.token && !config?.password) issues.push('ALFA_PASSWORD');
+  return issues;
+}
+
+function resolvePaymentProvider() {
+  const normalized = String(PAYMENT_PROVIDER || '').trim().toLowerCase();
+  if (normalized === OZON_PAYMENT_PROVIDER) return OZON_PAYMENT_PROVIDER;
+  return ALFA_PAYMENT_PROVIDER;
+}
+
+async function initiatePayment(orderId, payableAmount, orderPayload, user) {
+  const provider = resolvePaymentProvider();
+  if (provider === OZON_PAYMENT_PROVIDER) {
+    return initiateOzonPayment(orderId, payableAmount, orderPayload, user);
+  }
+  return initiateAlfaPayment(orderId, payableAmount, orderPayload, user);
+}
+
+async function initiateOzonPayment(orderId, payableAmount, orderPayload, user) {
+  try {
+    const paymentResult = await ozonBankAdapter.createPayment({
+      orderId,
+      amount: payableAmount,
+      currency: orderPayload?.total?.currency ?? 'RUB',
+      description: `Order ${orderId}`,
+      userId: user?.id ?? null,
+      items: orderPayload?.items ?? null,
+      extra: {
+        delivery: orderPayload?.delivery ?? null,
+        bonus: orderPayload?.bonus ?? null,
+      },
+      order: orderPayload,
+    });
+
+    const status = resolveNextPaymentStatus(
+      'pending',
+      paymentResult.status ?? (paymentResult.ok ? 'pending' : 'error'),
+    );
+
+    const persistResult = await persistPaymentSnapshot(orderId, {
+      provider: OZON_PAYMENT_PROVIDER,
+      status,
+      payable_amount: payableAmount,
+      payment_url: paymentResult.paymentUrl ?? null,
+      payload: paymentResult.payload ?? null,
+      response: paymentResult.response ?? null,
+    });
+    if (!persistResult.ok) {
+      console.error('Failed to persist payment init snapshot', {
+        orderId,
+        code: persistResult.code,
+      });
+    }
+
+    return {
+      ok: paymentResult.ok && Boolean(paymentResult.paymentUrl),
+      paymentUrl: paymentResult.paymentUrl ?? null,
+      status,
+      httpStatus: paymentResult.ok ? 200 : mapPaymentErrorToStatus(paymentResult.code),
+    };
+  } catch (error) {
+    console.error('OZON Bank payment init failed:', error);
+    await persistPaymentSnapshot(orderId, {
+      provider: OZON_PAYMENT_PROVIDER,
+      status: 'error',
+      payable_amount: payableAmount,
+    });
+    return { ok: false, paymentUrl: null, status: 'error', httpStatus: 502 };
+  }
+}
+
+async function initiateAlfaPayment(orderId, payableAmount, orderPayload, user) {
+  try {
+    const paymentResult = await alfaBankAdapter.registerPayment({
+      orderId,
+      orderNumber: String(orderId),
+      amount: payableAmount,
+      currency: alfaBankConfig.currency || '643',
+      description: `Order ${orderId}`,
+      clientId: user?.id != null ? String(user.id) : undefined,
+      order: orderPayload,
+    });
+
+    const status = resolveNextPaymentStatus(
+      'pending',
+      paymentResult.status ?? (paymentResult.ok ? 'pending' : 'error'),
+    );
+
+    const responsePayload =
+      paymentResult.gatewayOrderId != null
+        ? { ...paymentResult.response, gatewayOrderId: paymentResult.gatewayOrderId }
+        : paymentResult.response ?? null;
+
+    const persistResult = await persistPaymentSnapshot(orderId, {
+      provider: ALFA_PAYMENT_PROVIDER,
+      status,
+      payable_amount: payableAmount,
+      payment_url: paymentResult.paymentUrl ?? null,
+      payload: paymentResult.payload ?? null,
+      response: responsePayload ?? null,
+    });
+    if (!persistResult.ok) {
+      console.error('Failed to persist payment init snapshot', {
+        orderId,
+        code: persistResult.code,
+      });
+    }
+
+    return {
+      ok: paymentResult.ok && Boolean(paymentResult.paymentUrl),
+      paymentUrl: paymentResult.paymentUrl ?? null,
+      status,
+      httpStatus: paymentResult.ok ? 200 : mapPaymentErrorToStatus(paymentResult.code),
+    };
+  } catch (error) {
+    console.error('Alfa Bank payment init failed:', error);
+    await persistPaymentSnapshot(orderId, {
+      provider: ALFA_PAYMENT_PROVIDER,
+      status: 'error',
+      payable_amount: payableAmount,
+    });
+    return { ok: false, paymentUrl: null, status: 'error', httpStatus: 502 };
+  }
+}
+
+async function handleOzonWebhook(req, res) {
+  try {
+    const rawBody = typeof req.rawBody === 'string' ? req.rawBody : '';
+    const payload = await readJsonBody(req);
+    const sigHeader = ozonBankConfig.webhookSignatureHeader?.toLowerCase?.();
+    const providedSignature =
+      (sigHeader && req.headers?.[sigHeader]) ||
+      req.headers?.[ozonBankConfig.webhookSignatureHeader] ||
+      req.headers?.['x-signature'] ||
+      null;
+
+    const isValid = ozonBankAdapter.verifyWebhookSignature(rawBody, providedSignature);
+    if (!isValid) {
+      sendJson(res, 400, { message: 'Неверная подпись webhook.' });
+      return;
+    }
+
+    const orderId = ozonBankAdapter.extractWebhookOrderId(payload);
+    if (!orderId) {
+      sendJson(res, 202, { ok: true });
+      return;
+    }
+
+    const webhookStatus =
+      ozonBankAdapter.extractWebhookStatus(payload) ?? 'webhook_received';
+
+    const persistResult = await persistPaymentSnapshot(orderId, {
+      provider: OZON_PAYMENT_PROVIDER,
+      status: webhookStatus,
+      webhook: buildWebhookRecord(req, rawBody, payload),
+    });
+
+    if (!persistResult.ok) {
+      const statusCode =
+        persistResult.code === 'order_not_found'
+          ? 404
+          : persistResult.code === 'invalid_order_id'
+            ? 202
+            : 400;
+      sendJson(res, statusCode, { message: 'Не удалось обработать webhook.' });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true });
+  } catch (error) {
+    console.error('Webhook handling failed:', error);
+    sendJson(res, 500, { message: 'Ошибка обработки webhook.' });
+  }
+}
+
+async function handleAlfaCallback(req, res) {
+  try {
+    const rawBody = typeof req.rawBody === 'string' ? req.rawBody : '';
+    const params = extractCallbackParams(req, rawBody);
+    const checksum = params.checksum ?? params.CHECKSUM ?? null;
+
+    if (alfaBankConfig.callbackSecret) {
+      if (!checksum) {
+        sendJson(res, 400, { message: 'Отсутствует подпись callback.' });
+        return;
+      }
+      const isValid = verifyAlfaChecksum(params, alfaBankConfig.callbackSecret, checksum);
+      if (!isValid) {
+        sendJson(res, 400, { message: 'Неверная подпись callback.' });
+        return;
+      }
+    }
+
+    const orderNumber = params.orderNumber ?? params.order_number ?? params.orderId ?? params.order_id ?? null;
+    const orderId = orderNumber ? String(orderNumber) : null;
+
+    if (!orderId) {
+      sendJson(res, 202, { ok: true });
+      return;
+    }
+
+    const webhookStatus = resolveAlfaCallbackStatus(params);
+
+    const sideEffectResult = await applyPaymentOutcomeEffects(orderId, webhookStatus);
+    if (!sideEffectResult.ok) {
+      const statusCode =
+        sideEffectResult.code === 'order_not_found'
+          ? 404
+          : sideEffectResult.code === 'invalid_order_id'
+            ? 202
+            : 400;
+      sendJson(res, statusCode, { message: 'Не удалось обработать callback.' });
+      return;
+    }
+
+    const persistResult = await persistPaymentSnapshot(orderId, {
+      provider: ALFA_PAYMENT_PROVIDER,
+      status: webhookStatus,
+      webhook: buildWebhookRecord(req, rawBody, params),
+    });
+
+    if (!persistResult.ok) {
+      const statusCode =
+        persistResult.code === 'order_not_found'
+          ? 404
+          : persistResult.code === 'invalid_order_id'
+            ? 202
+            : 400;
+      sendJson(res, statusCode, { message: 'Не удалось обработать callback.' });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true });
+  } catch (error) {
+    console.error('Alfa callback handling failed:', error);
+    sendJson(res, 500, { message: 'Ошибка обработки callback.' });
+  }
+}
+
+async function persistPaymentSnapshot(orderId, patch = {}) {
+  const numericId = Number(orderId);
+  if (!Number.isFinite(numericId)) {
+    return { ok: false, code: 'invalid_order_id' };
+  }
+
+  const existingResult = await pool.query(
+    `
+      SELECT
+        order_data,
+        payment_provider,
+        payment_status,
+        payment_payload,
+        payment_response,
+        payment_webhook,
+        payable_amount
+      FROM order_history
+      WHERE id = $1
+    `,
+    [numericId],
+  );
+
+  if (existingResult.rowCount === 0) {
+    return { ok: false, code: 'order_not_found' };
+  }
+
+  const existing = extractPaymentFromRow(existingResult.rows[0]);
+  const merged = sanitizePaymentSnapshot(
+    { ...patch, payable_amount: patch.payable_amount ?? patch.payableAmount },
+    existing,
+  );
+
+  await pool.query(
+    `
+      UPDATE order_history
+      SET payment_provider = $2,
+          payment_status = $3,
+          payment_payload = $4::jsonb,
+          payment_response = $5::jsonb,
+          payment_webhook = $6::jsonb,
+          order_data = jsonb_set(
+            COALESCE(order_data, '{}'::jsonb),
+            '{payment}',
+            $7::jsonb,
+            true
+          )
+      WHERE id = $1
+    `,
+    [
+      numericId,
+      merged.provider,
+      merged.status,
+      merged.payload != null ? JSON.stringify(merged.payload) : null,
+      merged.response != null ? JSON.stringify(merged.response) : null,
+      merged.webhook != null ? JSON.stringify(merged.webhook) : null,
+      JSON.stringify(buildOrderDataPaymentObject(merged)),
+    ],
+  );
+
+  return { ok: true, snapshot: merged };
+}
+
+function buildOrderDataPaymentObject(payment) {
+  return {
+    provider: payment.provider ?? null,
+    status: payment.status ?? null,
+    payable_amount: payment.payable_amount ?? null,
+    payment_url: payment.payment_url ?? null,
+    payload: payment.payload ?? null,
+    response: payment.response ?? null,
+    webhook: payment.webhook ?? null,
+  };
+}
+
+function sanitizePaymentSnapshot(patch = {}, existing = {}) {
+  const provider = patch.provider ?? existing.provider ?? null;
+  const status = resolveNextPaymentStatus(existing.status, patch.status ?? null);
+  const payableAmount = safeNumber(patch.payable_amount ?? existing.payable_amount);
+  const paymentUrl = patch.payment_url ?? existing.payment_url ?? null;
+  const payload = patch.payload ?? existing.payload ?? null;
+  const response = patch.response ?? existing.response ?? null;
+  const webhook = patch.webhook ?? existing.webhook ?? null;
+
+  return {
+    provider,
+    status,
+    payable_amount: payableAmount,
+    payment_url: paymentUrl,
+    payload,
+    response,
+    webhook,
+  };
+}
+
+function extractPaymentFromRow(row) {
+  const paymentBlock =
+    row?.order_data && typeof row.order_data === 'object'
+      ? row.order_data.payment ?? {}
+      : {};
+
+  return {
+    provider: row?.payment_provider ?? paymentBlock.provider ?? null,
+    status: row?.payment_status ?? paymentBlock.status ?? null,
+    payload: row?.payment_payload ?? paymentBlock.payload ?? null,
+    response: row?.payment_response ?? paymentBlock.response ?? null,
+    webhook: row?.payment_webhook ?? paymentBlock.webhook ?? null,
+    payment_url: paymentBlock.payment_url ?? null,
+    payable_amount: safeNumber(paymentBlock.payable_amount ?? row?.payable_amount),
+  };
+}
+
+function resolveNextPaymentStatus(current, incoming) {
+  const currentStatus = normalizePaymentStatus(current, null);
+  const nextStatus = normalizePaymentStatus(incoming, null);
+  if (!nextStatus) return currentStatus ?? null;
+  if (!currentStatus) return nextStatus;
+
+  const finalStatuses = new Set([
+    'paid',
+    'succeeded',
+    'failed',
+    'canceled',
+    'cancelled',
+    'success',
+    'completed',
+    'complete',
+  ]);
+  if (finalStatuses.has(currentStatus) && !finalStatuses.has(nextStatus)) {
+    return currentStatus;
+  }
+  if (finalStatuses.has(currentStatus) && finalStatuses.has(nextStatus) && currentStatus !== nextStatus) {
+    return currentStatus;
+  }
+  return nextStatus;
+}
+
+function normalizePaymentStatus(status, fallback = null) {
+  if (typeof status !== 'string') return fallback;
+  const normalized = status.trim().toLowerCase().replace(/\s+/g, '_');
+  return normalized || fallback;
+}
+
+function mapPaymentErrorToStatus(code) {
+  if (code === 'api_base_missing') return 503;
+  if (code === 'http_error' || code === 'network_error') return 502;
+  return 500;
+}
+
+async function applyPaymentOutcomeEffects(orderId, incomingPaymentStatus) {
+  const numericId = Number(orderId);
+  if (!Number.isFinite(numericId)) {
+    return { ok: false, code: 'invalid_order_id' };
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const orderResult = await client.query(
+      `
+        SELECT id, user_id, bonus_spent, bonus_earned, order_data, payment_status
+        FROM order_history
+        WHERE id = $1
+        FOR UPDATE
+      `,
+      [numericId],
+    );
+
+    if (orderResult.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return { ok: false, code: 'order_not_found' };
+    }
+
+    const row = orderResult.rows[0];
+    const currentPaymentStatus = normalizePaymentStatus(row.payment_status, 'pending');
+    const nextPaymentStatus = normalizePaymentStatus(incomingPaymentStatus, currentPaymentStatus);
+    const wasPaid = isPaymentSuccessStatus(currentPaymentStatus);
+    const isPaid = isPaymentSuccessStatus(nextPaymentStatus);
+    const isFailed = isPaymentFailureStatus(nextPaymentStatus);
+
+    const orderData =
+      row.order_data && typeof row.order_data === 'object'
+        ? JSON.parse(JSON.stringify(row.order_data))
+        : {};
+    const bonusData =
+      orderData.bonus && typeof orderData.bonus === 'object'
+        ? { ...orderData.bonus }
+        : {};
+    const bonusSpent = Math.max(0, Math.floor(Number(row.bonus_spent) || 0));
+    const bonusEarned = Math.max(0, Math.floor(Number(row.bonus_earned) || 0));
+    const now = new Date().toISOString();
+
+    let bonusDelta = 0;
+
+    if (isPaid && !wasPaid && bonusEarned > 0 && !bonusData.earnedAppliedAt) {
+      bonusDelta += bonusEarned;
+      bonusData.earnedAppliedAt = now;
+    }
+
+    if (isPaid && bonusSpent > 0 && bonusData.spentReserved === true) {
+      bonusData.spentReserved = false;
+      bonusData.spentAppliedAt = bonusData.spentAppliedAt ?? now;
+    }
+
+    if (
+      isFailed &&
+      bonusSpent > 0 &&
+      bonusData.spentRestoredAt == null &&
+      (bonusData.spentReserved === true || bonusData.spentReserved == null)
+    ) {
+      bonusDelta += bonusSpent;
+      bonusData.spentReserved = false;
+      bonusData.spentRestoredAt = now;
+    }
+
+    if (bonusDelta !== 0) {
+      await client.query(
+        `
+          UPDATE users
+          SET bonus_balance = GREATEST(0, COALESCE(bonus_balance, 0) + $1),
+              updated_at = NOW()
+          WHERE id = $2
+        `,
+        [bonusDelta, row.user_id],
+      );
+    }
+
+    orderData.bonus = bonusData;
+    orderData.status = resolveOrderStatusByPayment(nextPaymentStatus, orderData.status);
+
+    await client.query(
+      `
+        UPDATE order_history
+        SET order_data = $2::jsonb
+        WHERE id = $1
+      `,
+      [numericId, JSON.stringify(orderData)],
+    );
+
+    await client.query('COMMIT');
+    return { ok: true };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Failed to apply payment outcome effects:', error);
+    return { ok: false, code: 'db_error' };
+  } finally {
+    client.release();
+  }
+}
+
+function safeNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function extractCallbackParams(req, rawBody) {
+  if (req && req.method === 'GET' && req.query && typeof req.query === 'object') {
+    return { ...req.query };
+  }
+
+  if (req && req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
+    return { ...req.body };
+  }
+
+  const raw = typeof rawBody === 'string' ? rawBody.trim() : '';
+  if (!raw) return {};
+
+  try {
+    const params = new URLSearchParams(raw);
+    return Object.fromEntries(params.entries());
+  } catch {
+    return {};
+  }
+}
+
+function verifyAlfaChecksum(params, secret, checksum) {
+  if (!secret || !checksum || !params) return false;
+  const entries = Object.entries(params)
+    .filter(([key]) => {
+      const lowered = key.toLowerCase();
+      return lowered !== 'checksum' && lowered !== 'sign_alias';
+    })
+    .map(([key, value]) => [key, String(value ?? '')]);
+
+  entries.sort(([a], [b]) => a.localeCompare(b, 'en'));
+
+  const payload = entries.map(([key, value]) => `${key};${value};`).join('');
+  const expected = crypto
+    .createHmac('sha256', secret)
+    .update(payload)
+    .digest('hex')
+    .toUpperCase();
+
+  return expected === String(checksum).toUpperCase();
+}
+
+function resolveAlfaCallbackStatus(params = {}) {
+  const operation = String(params.operation ?? '').toLowerCase();
+  const status = String(params.status ?? '').toLowerCase();
+  const isSuccess = status === '1' || status === 'true';
+  const isFailed = status === '0' || status === 'false';
+
+  if (operation === 'deposited') return isSuccess ? 'paid' : 'declined';
+  if (operation === 'approved') return isSuccess ? 'authorized' : 'declined';
+  if (operation === 'reversed') return isSuccess ? 'cancelled' : 'declined';
+  if (operation === 'refunded') return isSuccess ? 'refunded' : 'declined';
+  if (operation === 'declinedbytimeout' || operation === 'declinedcardpresent') return 'declined';
+  if (isSuccess) return 'success';
+  if (isFailed) return 'declined';
+
+  return operation || 'callback_received';
+}
+
+function isPaymentSuccessStatus(status) {
+  const normalized = normalizePaymentStatus(status, '');
+  return ['paid', 'success', 'succeeded', 'completed', 'complete'].includes(normalized);
+}
+
+function isPaymentFailureStatus(status) {
+  const normalized = normalizePaymentStatus(status, '');
+  return [
+    'failed',
+    'error',
+    'declined',
+    'cancelled',
+    'canceled',
+    'refunded',
+    'reversed',
+    'timeout',
+  ].includes(normalized);
+}
+
+function resolveOrderStatusByPayment(paymentStatus, currentOrderStatus) {
+  if (isPaymentSuccessStatus(paymentStatus)) {
+    return 'paid';
+  }
+
+  if (isPaymentFailureStatus(paymentStatus)) {
+    return 'cancelled';
+  }
+
+  const normalizedCurrent = normalizeOrderLifecycleStatus(currentOrderStatus);
+  return normalizedCurrent ?? 'processing';
+}
+
+function normalizeOrderLifecycleStatus(status) {
+  const normalized = normalizePaymentStatus(status, null);
+  if (!normalized) return null;
+  if (['processing', 'delivered', 'cancelled', 'paid'].includes(normalized)) {
+    return normalized;
+  }
+  return null;
+}
+
+function buildWebhookRecord(req, rawBody, parsedBody) {
+  return {
+    received_at: new Date().toISOString(),
+    signature:
+      req.headers?.[ozonBankConfig.webhookSignatureHeader] ??
+      req.headers?.[ozonBankConfig.webhookSignatureHeader?.toLowerCase?.()] ??
+      req.headers?.['x-signature'] ??
+      null,
+    headers: pickWebhookHeaders(req.headers),
+    raw_body: rawBody ?? null,
+    parsed_body: parsedBody ?? null,
+  };
+}
+
+function pickWebhookHeaders(headers = {}) {
+  const allowedKeys = [
+    'x-signature',
+    'x-merchant-id',
+    ozonBankConfig.webhookSignatureHeader?.toLowerCase?.(),
+  ].filter(Boolean);
+  const result = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (allowedKeys.includes(key.toLowerCase())) {
+      result[key] = value;
+    }
+  }
+  return result;
 }

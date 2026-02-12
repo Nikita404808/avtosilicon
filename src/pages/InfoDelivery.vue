@@ -26,6 +26,10 @@
 </template>
 
 <script setup lang="ts">
+import { useRoute } from 'vue-router';
+import { useSeo } from '@/composables/useSeo';
+import { buildCanonicalFromRoute } from '@/services/seo';
+
 const methods = [
   {
     title: 'Доставка на дом или в офис',
@@ -54,6 +58,15 @@ const faqs = [
     answer: 'Свяжитесь с нами, мы запросим статус у партнёров и предложим решение.',
   },
 ];
+
+const route = useRoute();
+
+useSeo({
+  title: 'Доставка силиконовых патрубков — Автосиликон',
+  description:
+    'Доставка патрубков Автосиликон по России и СНГ: курьер, СДЕК, Почта России или самовывоз в Балаково. Бесплатно от 4000 ₽.',
+  canonical: buildCanonicalFromRoute(route),
+});
 </script>
 
 <style scoped lang="scss">

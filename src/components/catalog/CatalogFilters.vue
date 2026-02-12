@@ -1,18 +1,5 @@
 <template>
   <aside class="filters">
-    <form class="filters__search" @submit.prevent="submitKeyword">
-      <label for="catalog-search">Поиск по каталогу</label>
-      <div class="filters__search-field">
-        <input
-          id="catalog-search"
-          v-model="keyword"
-          type="search"
-          placeholder="Введите артикул или название"
-        />
-        <button type="submit">Найти</button>
-      </div>
-    </form>
-
     <div class="filters__field">
       <label for="catalog-car-model">Марка</label>
       <select id="catalog-car-model" v-model="carModelIdModel" class="filters__select">
@@ -38,7 +25,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
+import { computed } from 'vue';
 import type { FilterState } from '@/types';
 
 type SelectOption = {
@@ -55,24 +42,10 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (event: 'update:filters', value: Partial<FilterState>): void;
-  (event: 'submit:search', value: string): void;
   (event: 'reset'): void;
   (event: 'update:carModelId', value: number | string | null): void;
   (event: 'update:partTypeId', value: number | string | null): void;
 }>();
-
-const internalFilters = reactive<FilterState>({ ...props.filters });
-const keyword = ref(props.filters.q ?? '');
-
-watch(
-  () => props.filters,
-  (next) => {
-    Object.assign(internalFilters, next);
-    keyword.value = next.q ?? '';
-  },
-  { deep: true },
-);
 
 const carModelIdModel = computed({
   get: () => (props.selectedCarModelId != null ? String(props.selectedCarModelId) : ''),
@@ -100,19 +73,7 @@ const partTypeIdModel = computed({
   },
 });
 
-const updateFilters = (partial: Partial<FilterState>) => {
-  Object.assign(internalFilters, partial);
-  emit('update:filters', partial);
-};
-
-const submitKeyword = () => {
-  emit('update:filters', { q: keyword.value, page: 1 });
-  emit('submit:search', keyword.value);
-};
-
 const resetFilters = () => {
-  Object.assign(internalFilters, { q: '', make: undefined, model: undefined, categories: [] });
-  keyword.value = '';
   emit('update:carModelId', null);
   emit('update:partTypeId', null);
   emit('reset');
@@ -133,43 +94,6 @@ const resetFilters = () => {
   position: relative;
   z-index: 5;
   isolation: isolate;
-}
-
-.filters__search {
-  display: grid;
-  gap: var(--space-2);
-
-  label {
-    font-weight: 600;
-  }
-}
-
-.filters__search-field {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  width: 100%;
-  box-sizing: border-box;
-
-  input {
-    flex: 1;
-    min-width: 0;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border);
-    padding: var(--space-2) var(--space-3);
-    min-height: 48px;
-  }
-
-  button {
-    border-radius: var(--radius-md);
-    border: none;
-    background: var(--accent);
-    color: #fff;
-    padding: var(--space-2) var(--space-4);
-    font-weight: 600;
-    min-height: 48px;
-    flex-shrink: 0;
-  }
 }
 
 .filters__field {
@@ -224,20 +148,6 @@ const resetFilters = () => {
   .filters {
     padding: var(--space-4) var(--space-3);
     border-radius: var(--radius-md);
-  }
-
-  .filters__search-field {
-    flex-wrap: wrap;
-
-    button {
-      width: 100%;
-    }
-  }
-}
-
-@media (max-width: $breakpoint-mobile) {
-  .filters__search-field button {
-    width: 100%;
   }
 }
 </style>

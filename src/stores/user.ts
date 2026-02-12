@@ -63,6 +63,8 @@ type CreateOrderResponse = AuthApiSuccess & {
   bonusEarned: number;
   payable: number;
   newBonusBalance: number;
+  payment_url?: string | null;
+  payment_status?: string | null;
 };
 
 type CreateOrderResult =
@@ -101,8 +103,11 @@ async function requestBankApi<T>(path: string, options?: RequestInit): Promise<T
     throw new Error(message || 'Bank API request failed');
   }
 
-  const payload = (await response.json()) as BankApiResponse<T>;
-  return payload.data;
+  const payload = (await response.json()) as BankApiResponse<T> | T;
+  if (payload && typeof payload === 'object' && 'data' in payload) {
+    return (payload as BankApiResponse<T>).data;
+  }
+  return payload as T;
 }
 
 export const useUserStore = defineStore('user', {
@@ -130,6 +135,7 @@ export const useUserStore = defineStore('user', {
             emailVerified?: boolean;
             bonusBalance?: number;
             bonus_balance?: number;
+            phone?: string | null;
           }
         | null,
     ) {
@@ -141,12 +147,13 @@ export const useUserStore = defineStore('user', {
       const bonusBalance = normalizeBonusBalance(
         user.bonusBalance ?? (user as Record<string, unknown>).bonus_balance ?? this.loyaltyPoints,
       );
+      const phone = resolvePhone(user.phone, this.profile?.phone ?? null);
 
       this.profile = {
         id: user.id,
         email: user.email,
         name: user.name ?? formatNameFromEmail(user.email),
-        phone: this.profile?.phone,
+        phone: phone ?? undefined,
         loyaltyPoints: bonusBalance,
         bonusBalance,
         emailVerified: user.emailVerified ?? this.profile?.emailVerified ?? false,
@@ -157,9 +164,40 @@ export const useUserStore = defineStore('user', {
       try {
         const { useAuthStore } = await import('./auth');
         const authStore = useAuthStore();
-        this.setProfileFromAuth(authStore.user);
+        if (!this.authToken && authStore.token) {
+          this.setAuthToken(authStore.token);
+        }
+        if (!this.authToken) return;
+
+        const profile = await requestBankApi<UserProfile>('/users/me', {
+          headers: { Authorization: `Bearer ${this.authToken}` },
+        });
+        const bonusBalance = normalizeBonusBalance(
+          profile.bonusBalance ?? profile.loyaltyPoints ?? this.loyaltyPoints,
+        );
+        const phone = resolvePhone(profile.phone, this.profile?.phone ?? null);
+        this.profile = {
+          ...this.profile,
+          ...profile,
+          phone: phone ?? undefined,
+          bonusBalance,
+          loyaltyPoints: bonusBalance,
+          emailVerified: profile.emailVerified ?? this.profile?.emailVerified ?? false,
+        };
+        authStore.patchUser({
+          name: this.profile?.name ?? undefined,
+          emailVerified: this.profile?.emailVerified ?? undefined,
+          bonusBalance,
+        });
       } catch (error) {
-        console.error('[User] Failed to sync profile from auth store', error);
+        console.error('[User] Failed to sync profile', error);
+        try {
+          const { useAuthStore } = await import('./auth');
+          const authStore = useAuthStore();
+          this.setProfileFromAuth(authStore.user);
+        } catch (syncError) {
+          console.error('[User] Failed to apply fallback auth profile', syncError);
+        }
       } finally {
         this.isLoadingProfile = false;
       }
@@ -173,17 +211,35 @@ export const useUserStore = defineStore('user', {
           body: JSON.stringify(patch),
           headers: { Authorization: `Bearer ${this.authToken}` },
         });
+        const phone = resolvePhone(updated.phone ?? patch.phone, this.profile?.phone ?? null);
         this.profile = {
           ...this.profile!,
           ...updated,
+          phone: phone ?? undefined,
           bonusBalance: this.profile?.bonusBalance,
           loyaltyPoints: this.profile?.loyaltyPoints,
         };
       } catch (error) {
         logBankError(error);
-        this.profile = { ...this.profile!, ...patch };
+        const phone = resolvePhone(patch.phone, this.profile?.phone ?? null);
+        this.profile = { ...this.profile!, ...patch, phone: phone ?? undefined };
       } finally {
         this.isLoadingProfile = false;
+      }
+    },
+    async updatePhone(phone: string) {
+      if (!this.authToken) throw new Error('Требуется авторизация');
+      const trimmed = phone.trim();
+      const digits = trimmed.replace(/\D/g, '');
+      if (trimmed && (digits.length < 10 || digits.length > 15)) {
+        throw new Error('Введите корректный телефон.');
+      }
+      await requestAuthApi<AuthApiSuccess>('/users/me/phone', this.authToken, {
+        method: 'PUT',
+        body: JSON.stringify({ phone: trimmed }),
+      });
+      if (this.profile) {
+        this.profile.phone = trimmed || undefined;
       }
     },
     async updateName(name: string) {
@@ -417,6 +473,16 @@ function logBankError(error: unknown) {
 
 function logAuthError(error: unknown) {
   console.error('[Auth API]', error);
+}
+
+function resolvePhone(nextPhone?: string | null, fallback?: string | null) {
+  if (typeof nextPhone === 'string') {
+    return nextPhone.trim();
+  }
+  if (typeof fallback === 'string') {
+    return fallback.trim();
+  }
+  return null;
 }
 
 function findProduct(productId: string) {

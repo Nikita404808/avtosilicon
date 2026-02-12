@@ -7,7 +7,18 @@
 </template>
 
 <script setup lang="ts">
-import { RouterLink } from 'vue-router';
+import { RouterLink, useRoute } from 'vue-router';
+import { useSeo } from '@/composables/useSeo';
+import { buildCanonicalFromRoute } from '@/services/seo';
+
+const route = useRoute();
+
+useSeo({
+  title: 'Страница не найдена — Автосиликон',
+  description: 'Ошибка 404. Страница не найдена.',
+  canonical: buildCanonicalFromRoute(route),
+  robots: 'noindex,nofollow',
+});
 </script>
 
 <style scoped lang="scss">

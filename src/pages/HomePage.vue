@@ -8,10 +8,13 @@
 </template>
 
 <script setup lang="ts">
+import { useRoute } from 'vue-router';
 import Hero from '@/components/home/Hero.vue';
 import PromoTiles from '@/components/home/PromoTiles.vue';
 import ReviewsCarousel from '@/components/home/ReviewsCarousel.vue';
 import USPBand from '@/components/USPBand.vue';
+import { useSeo } from '@/composables/useSeo';
+import { buildCanonicalFromRoute } from '@/services/seo';
 
 const uspItems = [
   {
@@ -33,6 +36,15 @@ const uspItems = [
     link: { href: '/contacts', label: 'Где купить' },
   },
 ];
+
+const route = useRoute();
+
+useSeo({
+  title: 'Автосиликон — производство силиконовых патрубков | Балаково, доставка по РФ',
+  description:
+    'Производство армированных силиконовых патрубков для авто, спецтехники и промышленности. Балаково. Доставка по России. Тел: +7 (906) 153-02-22',
+  canonical: buildCanonicalFromRoute(route),
+});
 </script>
 
 <style scoped lang="scss">

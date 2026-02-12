@@ -246,6 +246,7 @@ function buildAuthUser(payload) {
         id: String(payload.id),
         email: payload.email,
         name: payload.name ?? formatNameFromEmail(payload.email),
+        phone: payload.phone ?? null,
         emailVerified: Boolean(payload.email_verified),
         bonusBalance: normalizeBonusBalance(payload.bonus_balance ?? payload.bonusBalance),
     };

@@ -10,121 +10,124 @@
               ✕
             </button>
           </header>
-          <form class="modal__form" @submit.prevent="submit">
-            <label for="email">Email</label>
-            <input
-              id="email"
-              v-model.trim="email"
-              type="email"
-              autocomplete="email"
-              :disabled="isLoading"
-              required
-            />
-
-            <label for="password">Пароль</label>
-            <div class="modal__input-wrapper">
+          <div class="modal__body">
+            <form id="auth-form" class="modal__form" @submit.prevent="submit">
+              <label for="email">Email</label>
               <input
-                id="password"
-                v-model="password"
-                :type="showPassword ? 'text' : 'password'"
-                autocomplete="current-password"
+                id="email"
+                v-model.trim="email"
+                type="email"
+                autocomplete="email"
                 :disabled="isLoading"
                 required
               />
-              <button
-                type="button"
-                class="modal__toggle"
-                :aria-pressed="String(showPassword)"
-                :aria-label="showPassword ? 'Скрыть пароль' : 'Показать пароль'"
-                @click="showPassword = !showPassword"
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    v-if="!showPassword"
-                    d="M12 5c-4.5 0-8.5 2.8-10.5 7 2 4.2 6 7 10.5 7s8.5-2.8 10.5-7C20.5 7.8 16.5 5 12 5zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"
-                  />
-                  <path
-                    v-else
-                    d="M2 5.3 3.3 4l16.4 16.4-1.3 1.3-3.4-3.4A11.5 11.5 0 0 1 12 19c-4.5 0-8.5-2.8-10.5-7 1-2 2.5-3.7 4.4-5zm9.1 1.1c4-.2 7.7 2 9.9 5.9-.8 1.6-1.9 3-3.3 4.1l-2.6-2.6a4 4 0 0 0-4.9-4.9z"
-                  />
-                </svg>
-              </button>
-            </div>
 
-            <label v-if="mode === 'register'" for="password-confirm">Повторите пароль</label>
-            <div v-if="mode === 'register'" class="modal__input-wrapper">
-              <input
-                id="password-confirm"
-                v-model="confirmPassword"
-                :type="showConfirmPassword ? 'text' : 'password'"
-                autocomplete="new-password"
-                :disabled="isLoading"
-                required
-              />
-              <button
-                type="button"
-                class="modal__toggle"
-                :aria-pressed="String(showConfirmPassword)"
-                :aria-label="showConfirmPassword ? 'Скрыть пароль' : 'Показать пароль'"
-                @click="showConfirmPassword = !showConfirmPassword"
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    v-if="!showConfirmPassword"
-                    d="M12 5c-4.5 0-8.5 2.8-10.5 7 2 4.2 6 7 10.5 7s8.5-2.8 10.5-7C20.5 7.8 16.5 5 12 5zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"
-                  />
-                  <path
-                    v-else
-                    d="M2 5.3 3.3 4l16.4 16.4-1.3 1.3-3.4-3.4A11.5 11.5 0 0 1 12 19c-4.5 0-8.5-2.8-10.5-7 1-2 2.5-3.7 4.4-5zm9.1 1.1c4-.2 7.7 2 9.9 5.9-.8 1.6-1.9 3-3.3 4.1l-2.6-2.6a4 4 0 0 0-4.9-4.9z"
-                  />
-                </svg>
-              </button>
-            </div>
-
-            <div v-if="mode === 'register'" class="modal__policy">
-              <label class="modal__checkbox">
-                <input type="checkbox" v-model="acceptedPolicy" />
-                <span>
-                  Принимаю
-                  <RouterLink to="/policy">Политику конфиденциальности</RouterLink>
-                </span>
-              </label>
-            </div>
-
-            <p v-if="errorMessage" class="modal__error">{{ errorMessage }}</p>
-
-            <button type="submit" :disabled="isLoading">
-              {{ primaryActionLabel }}
-            </button>
-
-            <div v-if="mode === 'login'" class="modal__inline-actions">
-              <button type="button" class="modal__ghost-button" @click="openReset" :disabled="isLoading">
-                Забыли пароль?
-              </button>
-              <div class="modal__create-account">
+              <label for="password">Пароль</label>
+              <div class="modal__input-wrapper">
+                <input
+                  id="password"
+                  v-model="password"
+                  :type="showPassword ? 'text' : 'password'"
+                  autocomplete="current-password"
+                  :disabled="isLoading"
+                  required
+                />
                 <button
                   type="button"
-                  class="modal__ghost-button modal__ghost-button--compact"
-                  @click="switchMode"
-                  :disabled="isLoading"
+                  class="modal__toggle"
+                  :aria-pressed="String(showPassword)"
+                  :aria-label="showPassword ? 'Скрыть пароль' : 'Показать пароль'"
+                  @click="showPassword = !showPassword"
                 >
-                  Зарегистрироваться
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      v-if="!showPassword"
+                      d="M12 5c-4.5 0-8.5 2.8-10.5 7 2 4.2 6 7 10.5 7s8.5-2.8 10.5-7C20.5 7.8 16.5 5 12 5zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"
+                    />
+                    <path
+                      v-else
+                      d="M2 5.3 3.3 4l16.4 16.4-1.3 1.3-3.4-3.4A11.5 11.5 0 0 1 12 19c-4.5 0-8.5-2.8-10.5-7 1-2 2.5-3.7 4.4-5zm9.1 1.1c4-.2 7.7 2 9.9 5.9-.8 1.6-1.9 3-3.3 4.1l-2.6-2.6a4 4 0 0 0-4.9-4.9z"
+                    />
+                  </svg>
                 </button>
-                <small>Нет аккаунта?</small>
               </div>
-            </div>
-          </form>
-          <div v-if="mode === 'register'" class="modal__switch">
-            <span>Уже зарегистрированы?</span>
-            <button
-              type="button"
-              class="modal__ghost-button modal__ghost-button--compact"
-              @click="switchMode"
-              :disabled="isLoading"
-            >
-              Войти
-            </button>
+
+              <label v-if="mode === 'register'" for="password-confirm">Повторите пароль</label>
+              <div v-if="mode === 'register'" class="modal__input-wrapper">
+                <input
+                  id="password-confirm"
+                  v-model="confirmPassword"
+                  :type="showConfirmPassword ? 'text' : 'password'"
+                  autocomplete="new-password"
+                  :disabled="isLoading"
+                  required
+                />
+                <button
+                  type="button"
+                  class="modal__toggle"
+                  :aria-pressed="String(showConfirmPassword)"
+                  :aria-label="showConfirmPassword ? 'Скрыть пароль' : 'Показать пароль'"
+                  @click="showConfirmPassword = !showConfirmPassword"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      v-if="!showConfirmPassword"
+                      d="M12 5c-4.5 0-8.5 2.8-10.5 7 2 4.2 6 7 10.5 7s8.5-2.8 10.5-7C20.5 7.8 16.5 5 12 5zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"
+                    />
+                    <path
+                      v-else
+                      d="M2 5.3 3.3 4l16.4 16.4-1.3 1.3-3.4-3.4A11.5 11.5 0 0 1 12 19c-4.5 0-8.5-2.8-10.5-7 1-2 2.5-3.7 4.4-5zm9.1 1.1c4-.2 7.7 2 9.9 5.9-.8 1.6-1.9 3-3.3 4.1l-2.6-2.6a4 4 0 0 0-4.9-4.9z"
+                    />
+                  </svg>
+                </button>
+              </div>
+
+              <div v-if="mode === 'register'" class="modal__policy">
+                <label class="modal__checkbox">
+                  <input type="checkbox" v-model="acceptedPolicy" />
+                  <span>
+                    Принимаю
+                    <a href="/policy" target="_blank" rel="noopener noreferrer">
+                      Политику конфиденциальности
+                    </a>
+                  </span>
+                </label>
+              </div>
+
+              <p v-if="errorMessage" class="modal__error">{{ errorMessage }}</p>
+
+              <div v-if="mode === 'login'" class="modal__inline-actions">
+                <button type="button" class="modal__ghost-button" @click="openReset" :disabled="isLoading">
+                  Забыли пароль?
+                </button>
+              </div>
+            </form>
           </div>
+          <footer class="modal__footer">
+            <button class="modal__primary" type="submit" form="auth-form" :disabled="isLoading">
+              {{ primaryActionLabel }}
+            </button>
+            <div class="modal__footer-secondary">
+              <button
+                v-if="mode === 'register'"
+                type="button"
+                class="modal__ghost-button modal__ghost-button--wide"
+                @click="switchMode"
+                :disabled="isLoading"
+              >
+                Уже зарегистрированы? Войти
+              </button>
+              <button
+                v-else
+                type="button"
+                class="modal__ghost-button modal__ghost-button--wide"
+                @click="switchMode"
+                :disabled="isLoading"
+              >
+                Зарегистрироваться
+              </button>
+            </div>
+          </footer>
         </div>
       </div>
     </Transition>
@@ -138,20 +141,24 @@
               ✕
             </button>
           </header>
-          <form class="modal__form" @submit.prevent="submitReset">
-            <label for="reset-email">Email</label>
-            <input
-              id="reset-email"
-              v-model.trim="resetEmail"
-              type="email"
-              autocomplete="email"
-              required
-            />
-            <p v-if="resetMessage" class="modal__hint">{{ resetMessage }}</p>
-            <button type="submit" :disabled="isResetLoading">
+          <div class="modal__body">
+            <form id="reset-form" class="modal__form" @submit.prevent="submitReset">
+              <label for="reset-email">Email</label>
+              <input
+                id="reset-email"
+                v-model.trim="resetEmail"
+                type="email"
+                autocomplete="email"
+                required
+              />
+              <p v-if="resetMessage" class="modal__hint">{{ resetMessage }}</p>
+            </form>
+          </div>
+          <footer class="modal__footer">
+            <button class="modal__primary" type="submit" form="reset-form" :disabled="isResetLoading">
               {{ isResetLoading ? 'Отправляем…' : 'Отправить ссылку' }}
             </button>
-          </form>
+          </footer>
         </div>
       </div>
     </Transition>
@@ -160,7 +167,6 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { RouterLink } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 
 const authStore = useAuthStore();
@@ -334,13 +340,14 @@ watch(showResetModal, (isOpen) => {
   width: min(480px, calc(100vw - 32px));
   background: var(--surface);
   border-radius: var(--radius-lg);
-  padding: var(--space-6);
   box-shadow: var(--shadow-lg);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
   outline: none;
   margin-inline: auto;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  max-height: 90vh;
 }
 
 .modal__header {
@@ -353,6 +360,11 @@ watch(showResetModal, (isOpen) => {
     background: transparent;
     font-size: 20px;
   }
+}
+
+.modal__body {
+  overflow: auto;
+  padding-inline: 2px;
 }
 
 .modal__form {
@@ -399,6 +411,39 @@ watch(showResetModal, (isOpen) => {
       box-shadow: 0 0 0 3px rgba(255, 102, 0, 0.25);
     }
   }
+}
+
+.modal__footer {
+  display: grid;
+  gap: var(--space-3);
+  align-content: flex-start;
+  padding-top: var(--space-2);
+}
+
+.modal__primary {
+  width: 100%;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  padding: var(--space-3) var(--space-5);
+  font-weight: 600;
+  min-height: 52px;
+  transition: box-shadow 0.15s ease, transform 0.02s ease;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  &:focus-visible {
+    box-shadow: 0 0 0 3px rgba(255, 102, 0, 0.25);
+  }
+}
+
+.modal__footer-secondary {
+  display: grid;
+  gap: var(--space-2);
 }
 
 .modal__error {
@@ -451,20 +496,6 @@ watch(showResetModal, (isOpen) => {
   .modal__ghost-button {
     margin-top: 0;
   }
-}
-
-.modal__create-account {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.modal__create-account small {
-  display: block;
-  font-size: var(--fz-caption);
-  color: var(--text-secondary);
-  text-align: center;
 }
 
 .modal__policy {
@@ -542,17 +573,6 @@ watch(showResetModal, (isOpen) => {
     }
   }
 
-  .modal__create-account {
-    flex-direction: row;
-    align-items: center;
-    justify-content: flex-start;
-    gap: var(--space-2);
-    width: auto;
-  }
-
-  .modal__create-account small {
-    margin-left: var(--space-2);
-  }
 }
 
 .modal__toggle {
@@ -594,6 +614,12 @@ watch(showResetModal, (isOpen) => {
     margin-top: 0;
   }
 
+  &--wide {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+
   &:disabled {
     opacity: 0.5;
     cursor: not-allowed;
@@ -622,16 +648,38 @@ watch(showResetModal, (isOpen) => {
   }
 }
 
-@media (max-width: $breakpoint-mobile) {
+@media (max-width: $breakpoint-tablet) {
   .modal {
-    align-items: flex-start;
-    padding: var(--space-4) var(--space-3);
+    align-items: stretch;
+    justify-content: flex-end;
   }
 
   .modal__content {
     width: 100%;
-    border-radius: var(--radius-md);
+    max-width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    padding: 0;
+    grid-template-rows: auto 1fr auto;
+    gap: 0;
+  }
+
+  .modal__header {
+    padding: var(--space-4) var(--space-4) var(--space-3);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .modal__body {
     padding: var(--space-4);
+  }
+
+  .modal__footer {
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.08);
+    padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
   }
 }
 </style>

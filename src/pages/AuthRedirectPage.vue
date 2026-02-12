@@ -13,6 +13,8 @@
 import { computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import { useSeo } from '@/composables/useSeo';
+import { buildCanonicalFromRoute } from '@/services/seo';
 
 const route = useRoute();
 const authStore = useAuthStore();
@@ -31,6 +33,13 @@ const openAuth = () => {
 onMounted(() => {
   authStore.setPostAuthRedirect(redirectPath.value);
   authStore.toggleModal(true);
+});
+
+useSeo({
+  title: 'Вход или регистрация — Автосиликон',
+  description: 'Авторизация для оформления заказа и просмотра личного кабинета в Автосиликон.',
+  canonical: buildCanonicalFromRoute(route),
+  robots: 'noindex,nofollow',
 });
 
 watch(
@@ -59,6 +68,7 @@ watch(
     background: var(--accent);
     color: #fff;
     font-weight: 600;
+    margin-left: clamp(8px, 2.5vw, 16px);
   }
 }
 </style>

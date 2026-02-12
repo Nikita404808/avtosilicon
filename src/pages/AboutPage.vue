@@ -92,8 +92,11 @@
 </template>
 
 <script setup lang="ts">
-import aboutHeroImage from '/placeholder/foto/image5-39.jpeg?url';
+import { useRoute } from 'vue-router';
+import aboutHeroImage from '/placeholder/foto/about-company.jpg?url';
 import packagingImage from '/placeholder/foto/image6-41-size.jpg?url';
+import { useSeo } from '@/composables/useSeo';
+import { buildCanonicalFromRoute } from '@/services/seo';
 
 const kpis = [
   { value: '2018', label: 'Год основания' },
@@ -113,6 +116,15 @@ const marketplaceAdvantages = [
   'Прямые поставки от производителя и гарантированное качество.',
   'Высокие рейтинги и отзывы за оперативность и надёжность.',
 ];
+
+const route = useRoute();
+
+useSeo({
+  title: 'О компании Автосиликон — производство силиконовых патрубков',
+  description:
+    'Автосиликон — производство армированных силиконовых патрубков для авто, спецтехники и промышленности. Производство в Балаково, доставка по России.',
+  canonical: buildCanonicalFromRoute(route),
+});
 </script>
 
 <style scoped lang="scss">

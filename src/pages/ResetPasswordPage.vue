@@ -34,10 +34,18 @@
 import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import { useSeo } from '@/composables/useSeo';
+import { buildCanonicalFromRoute } from '@/services/seo';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+useSeo({
+  title: 'Сброс пароля — Автосиликон',
+  description: 'Сброс пароля для аккаунта Автосиликон.',
+  canonical: buildCanonicalFromRoute(route),
+  robots: 'noindex,nofollow',
+});
 
 const token = computed(() => (typeof route.query.token === 'string' ? route.query.token : ''));
 const newPassword = ref('');

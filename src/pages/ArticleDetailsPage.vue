@@ -27,6 +27,8 @@ import { computed, ref, watch } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import { fetchNews } from '@/api/directus';
 import type { NewsItem } from '@/types';
+import { useSeo } from '@/composables/useSeo';
+import { buildCanonicalFromRoute, getDefaultOgImageUrl } from '@/services/seo';
 
 const route = useRoute();
 const article = ref<NewsItem | null>(null);
@@ -46,8 +48,6 @@ const loadArticle = async () => {
     article.value = found;
     if (!found) {
       error.value = 'Новость не найдена';
-    } else {
-      document.title = `${found.title} — АВТОСИЛИКОН`;
     }
   } catch (err) {
     console.error('[ArticleDetails]', err);
@@ -56,6 +56,33 @@ const loadArticle = async () => {
     isLoading.value = false;
   }
 };
+
+const cleanText = (text: string, limit = 180) => {
+  const stripped = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (stripped.length <= limit) return stripped;
+  return `${stripped.slice(0, limit - 1).trimEnd()}…`;
+};
+
+const seoMeta = computed(() => {
+  const canonical = buildCanonicalFromRoute(route);
+  if (!article.value) {
+    return {
+      title: 'Новость — Автосиликон',
+      canonical,
+    };
+  }
+  const description = article.value.content ? cleanText(article.value.content) : undefined;
+  const image = article.value.image ?? getDefaultOgImageUrl();
+  return {
+    title: `${article.value.title} — Автосиликон`,
+    description,
+    canonical,
+    ogImage: image,
+    twitterImage: image,
+  };
+});
+
+useSeo(seoMeta);
 
 watch(
   () => slug.value,

@@ -8,6 +8,10 @@
           413864, Саратовская область, г. Балаково, ул. Саратовское шоссе 52/3, цокольный этаж, ТД
           «Генезис»
         </li>
+        <li>
+          <strong>Реквизиты:</strong>
+          ИП Крук Илья Александрович, с. Маянга (ИНН 643924592395), ОГРНИП 324645700063155
+        </li>
         <li><strong>Режим работы:</strong> Пн–Пт: 08:00–18:00</li>
         <li><strong>E-mail:</strong> <a href="mailto:autosilicone64@yandex.ru">autosilicone64@yandex.ru</a></li>
         <li><strong>Телефон:</strong> <a href="tel:+79061530222">+7 (906) 153-02-22</a> — Александр Владимирович</li>
@@ -29,6 +33,45 @@
 </template>
 
 <script setup lang="ts">
+import { useRoute } from 'vue-router';
+import { useSeo } from '@/composables/useSeo';
+import { buildCanonicalFromRoute, getCanonicalOrigin, getDefaultOgImageUrl } from '@/services/seo';
+
+const route = useRoute();
+const sameAsLinks = [
+  'https://vk.com/autosilicone',
+  'https://www.ozon.ru/seller/novodel-885208/?miniapp=seller_885208',
+  'https://www.wildberries.ru/seller/446137',
+  'https://market.yandex.ru/cc/7uTH64',
+  'https://www.avito.ru/user/17fc1256e10a89600c7ac7975827b15d/profile?src=sharing',
+];
+
+useSeo({
+  title: 'Контакты Автосиликон — Балаково, доставка по России',
+  description:
+    'Свяжитесь с Автосиликон: +7 (906) 153-02-22, autosilicone64@yandex.ru. Адрес: Саратовская область, г. Балаково, ул. Саратовское шоссе 52/3, ТД «Генезис».',
+  canonical: buildCanonicalFromRoute(route),
+  jsonLd: {
+    '@context': 'https://schema.org',
+    '@type': 'AutoPartsStore',
+    name: 'Автосиликон',
+    url: getCanonicalOrigin(),
+    image: getDefaultOgImageUrl(),
+    telephone: '+79061530222',
+    email: 'autosilicone64@yandex.ru',
+    address: {
+      '@type': 'PostalAddress',
+      streetAddress: 'ул. Саратовское шоссе 52/3, ТД «Генезис»',
+      addressLocality: 'Балаково',
+      addressRegion: 'Саратовская область',
+      postalCode: '413864',
+      addressCountry: 'RU',
+    },
+    openingHours: 'Mo-Fr 08:00-18:00',
+    sameAs: sameAsLinks,
+    areaServed: 'Russia',
+  },
+});
 </script>
 
 <style scoped lang="scss">

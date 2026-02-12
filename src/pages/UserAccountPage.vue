@@ -10,15 +10,26 @@
 </template>
 
 <script setup lang="ts">
+import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import UserAccount from '@/components/account/UserAccount.vue';
+import { useSeo } from '@/composables/useSeo';
+import { buildCanonicalFromRoute } from '@/services/seo';
 
 const authStore = useAuthStore();
+const route = useRoute();
 
 const openAuth = () => {
   authStore.setPostAuthRedirect('/account');
   authStore.toggleModal(true);
 };
+
+useSeo({
+  title: 'Личный кабинет — Автосиликон',
+  description: 'Управление заказами и профилем в личном кабинете Автосиликон.',
+  canonical: buildCanonicalFromRoute(route),
+  robots: 'noindex,nofollow',
+});
 </script>
 
 <style scoped lang="scss">

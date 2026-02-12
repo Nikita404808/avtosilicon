@@ -2,9 +2,18 @@ const BASE_URL = process.env.RUSPOST_API_BASE || 'https://tariff.pochta.ru';
 const officeIndex = process.env.RUSPOST_OFFICE_INDEX;
 const acceptanceIndex = process.env.RUSPOST_ACCEPTANCE_INDEX;
 const objectCode = process.env.RUSPOST_OBJECT_CODE;
+const pvzProxyUrl = process.env.RUSPOST_PVZ_PROXY_URL;
+const calcProxyUrl = process.env.RUSPOST_CALC_PROXY_URL;
 const isDev = process.env.NODE_ENV !== 'production';
 
 export async function searchPvz({ query, city, lat, lon }) {
+  if (pvzProxyUrl) {
+    const proxied = await tryProxyPvzSearch({ query, city, lat, lon });
+    if (proxied) {
+      return proxied;
+    }
+  }
+
   const normalizedCity = typeof city === 'string' ? city.trim() : '';
   const normalizedQuery = typeof query === 'string' ? query.trim() : '';
   const fallbackLat = normalizeCoordinate(lat);
@@ -31,6 +40,50 @@ export async function searchPvz({ query, city, lat, lon }) {
   return filtered.slice(0, 50);
 }
 
+async function tryProxyPvzSearch({ query, city, lat, lon }) {
+  try {
+    const response = await fetch(pvzProxyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        provider: 'ruspost',
+        query,
+        city,
+        lat,
+        lon,
+      }),
+    });
+    if (!response.ok) {
+      if (isDev) {
+        const message = await safeText(response);
+        console.log('RUSPOST: proxy PVZ failed', { status: response.status, message });
+      }
+      return null;
+    }
+    const data = await safeJson(response);
+    const points = Array.isArray(data?.points) ? data.points : [];
+    const filtered = filterProxyPoints(points);
+    return filtered.length ? filtered : null;
+  } catch (error) {
+    if (isDev) {
+      console.log('RUSPOST: proxy PVZ error', error);
+    }
+    return null;
+  }
+}
+
+function filterProxyPoints(points) {
+  if (!Array.isArray(points)) return [];
+  return points.filter((point) => {
+    const rawId = point?.id ?? point?.postalCode ?? point?.postal_code ?? '';
+    const id = String(rawId).trim();
+    if (!/^\d{5,6}$/.test(id)) {
+      return true;
+    }
+    return !id.startsWith('9');
+  });
+}
+
 export async function calculate({
   provider,
   type,
@@ -39,6 +92,19 @@ export async function calculate({
   address,
   provider_metadata,
 }) {
+  if (calcProxyUrl) {
+    const proxied = await tryProxyCalc({
+      provider,
+      type,
+      total_weight,
+      pickup_point_id,
+      address,
+      provider_metadata,
+    });
+    if (proxied) {
+      return proxied;
+    }
+  }
   void provider;
   void provider_metadata;
 
@@ -124,6 +190,33 @@ export async function calculate({
       _local: { office, acceptance, from: fromIndex, to: toIndex },
     },
   };
+}
+
+async function tryProxyCalc(payload) {
+  try {
+    const response = await fetch(calcProxyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      if (isDev) {
+        const message = await safeText(response);
+        console.log('RUSPOST: proxy calculate failed', { status: response.status, message });
+      }
+      return null;
+    }
+    const data = await safeJson(response);
+    if (data && typeof data === 'object' && Number.isFinite(Number(data.delivery_price))) {
+      return data;
+    }
+    return null;
+  } catch (error) {
+    if (isDev) {
+      console.log('RUSPOST: proxy calculate error', error);
+    }
+    return null;
+  }
 }
 
 export async function listTariffs(options) {
@@ -380,8 +473,15 @@ async function resolveBoundsByQuery(query) {
   };
 }
 
+const PVZ_SUGGEST_URL =
+  process.env.RUSPOST_PVZ_API_URL ||
+  'https://www.pochta.ru/suggestions/v2/postoffices.find-from-rectangle';
+const PVZ_USER_AGENT =
+  process.env.RUSPOST_PVZ_USER_AGENT ||
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+
 async function fetchOfficesFromRectangle(bounds) {
-  const url = new URL('https://www.pochta.ru/suggestions/v2/postoffices.find-from-rectangle');
+  const url = new URL(PVZ_SUGGEST_URL);
   const payload = {
     ...bounds,
     precision: 0,
@@ -393,7 +493,15 @@ async function fetchOfficesFromRectangle(bounds) {
 
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'User-Agent': PVZ_USER_AGENT,
+      'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
+      Origin: 'https://www.pochta.ru',
+      Referer: 'https://www.pochta.ru/',
+      'X-Requested-With': 'XMLHttpRequest',
+    },
     body: JSON.stringify(payload),
   });
 
@@ -412,6 +520,11 @@ function normalizeOffice(office) {
   const rawPostalCode = office.postalCode ?? office.postal_code ?? office.index ?? '';
   const postalCode = String(rawPostalCode).trim();
   if (!/^\d{5,6}$/.test(postalCode)) return null;
+  const partnerFlag = office.partner === 1 || office.partner === true;
+  const officeType = Number(office.type ?? office.typei ?? NaN);
+  if (partnerFlag || postalCode.startsWith('9') || officeType === 42) {
+    return null;
+  }
 
   const address = office.address && typeof office.address === 'object' ? office.address : {};
   const cityType = typeof address.settlementTypeOrCityType === 'string' ? address.settlementTypeOrCityType.trim() : '';

@@ -18,8 +18,6 @@
             :part-type-options="partTypeOptions"
             :selected-car-model-id="selectedCarModelId"
             :selected-part-type-id="selectedPartTypeId"
-            @update:filters="handleFilters"
-            @submit:search="handleSearch"
             @reset="resetFilters"
             @update:carModelId="setSelectedCarModelId"
             @update:partTypeId="setSelectedPartTypeId"
@@ -63,6 +61,8 @@ import Pagination from '@/components/catalog/Pagination.vue';
 import type { CarModelRef, FilterState, PartTypeRef, Product } from '@/types';
 import { fetchCarModels, fetchPartTypes } from '@/api/directus';
 import { useCatalogStore } from '@/stores/catalog';
+import { useSeo } from '@/composables/useSeo';
+import { buildCanonicalFromRoute } from '@/services/seo';
 
 const route = useRoute();
 const router = useRouter();
@@ -80,6 +80,9 @@ const carModelOptions = computed(() =>
     value: model.id,
     label: model.name,
   })),
+);
+const selectedCarModel = computed(() =>
+  carModels.value.find((model) => String(model.id) === String(selectedCarModelId.value)) ?? null,
 );
 const partTypeOptions = computed(() =>
   partTypes.value.map((type) => ({
@@ -189,10 +192,6 @@ const handleFilters = (partial: Partial<FilterState>) => {
   filters.value = { ...filters.value, ...partial, page: partial.page ?? 1 };
 };
 
-const handleSearch = () => {
-  filters.value.page = 1;
-};
-
 const handlePage = (page: number) => {
   filters.value.page = page;
 };
@@ -211,7 +210,6 @@ const toggleFilters = () => {
 const submitCatalogSearch = () => {
   const query = catalogSearch.value.trim();
   handleFilters({ q: query, page: 1 });
-  handleSearch();
 };
 
 watch(
@@ -295,6 +293,26 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('resize', handleViewport);
 });
+
+const seoMeta = computed(() => {
+  const modelName = selectedCarModel.value?.name;
+  const canonical = buildCanonicalFromRoute(route, ['carModel', 'partType']);
+  if (modelName) {
+    return {
+      title: `Запчасти и патрубки для ${modelName} — Автосиликон | доставка по РФ`,
+      description: `Каталог товаров для ${modelName}. Производство Автосиликон (Балаково). Доставка по России.`,
+      canonical,
+    };
+  }
+  return {
+    title: 'Каталог — Автосиликон | Балаково, доставка по РФ',
+    description:
+      'Каталог товаров Автосиликон: армированные силиконовые патрубки и комплектующие. Производство в Балаково, доставка по России.',
+    canonical,
+  };
+});
+
+useSeo(seoMeta);
 </script>
 
 <style scoped lang="scss">

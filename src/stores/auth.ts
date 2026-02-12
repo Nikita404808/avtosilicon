@@ -6,6 +6,7 @@ type AuthUser = {
   id: string;
   email: string;
   name: string | null;
+  phone?: string | null;
   emailVerified: boolean;
   bonusBalance: number;
 };
@@ -225,6 +226,7 @@ type AuthResponse = {
   id: string | number;
   email: string;
   name?: string | null;
+  phone?: string | null;
   email_verified?: boolean;
   bonus_balance?: number;
   bonusBalance?: number;
@@ -275,6 +277,7 @@ function buildAuthUser(payload: AuthResponse): AuthUser {
     id: String(payload.id),
     email: payload.email,
     name: payload.name ?? formatNameFromEmail(payload.email),
+    phone: payload.phone ?? null,
     emailVerified: Boolean(payload.email_verified),
     bonusBalance: normalizeBonusBalance(payload.bonus_balance ?? payload.bonusBalance),
   };

@@ -97,6 +97,10 @@ const handleCheckoutSubmit = async (payload: {
     }
     cartStore.clear();
     closeCheckout();
+    if (result.payment_url) {
+      window.location.href = result.payment_url;
+      return;
+    }
     const summary = [
       'Заказ создан! Мы уведомим вас по email.',
       `Списано бонусов: ${result.usedBonus}`,

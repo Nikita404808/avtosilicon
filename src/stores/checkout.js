@@ -75,7 +75,7 @@ function loadPersistedDraft() {
         if (!raw)
             return null;
         const parsed = JSON.parse(raw);
-        return {
+        const draft = {
             ...defaultDraft(),
             ...parsed,
             pvzSearch: { ...defaultDraft().pvzSearch, ...(parsed?.pvzSearch ?? {}) },
@@ -83,6 +83,14 @@ function loadPersistedDraft() {
             recipient: { ...defaultDraft().recipient, ...(parsed?.recipient ?? {}) },
             pvzResults: Array.isArray(parsed?.pvzResults) ? parsed.pvzResults : [],
         };
+        if (draft.provider === 'ruspost' &&
+            typeof draft.pickup_point_id === 'string' &&
+            draft.pickup_point_id.startsWith('9')) {
+            draft.pickup_point_id = null;
+            draft.pickup_point_address = null;
+            draft.provider_metadata = {};
+        }
+        return draft;
     }
     catch {
         return null;

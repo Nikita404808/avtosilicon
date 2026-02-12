@@ -37,6 +37,13 @@ VITE_BANK_API_BASE=https://api.ozonbank.ru
 
 При первом `npm install` автоматически ставятся husky-хуки. Пре-коммит запускает `lint-staged` (ESLint + Prettier на изменённых файлах).
 
+## OZON Bank (backend)
+
+- Переменные окружения: `OZON_BANK_API_BASE`, `OZON_BANK_CREATE_PAYMENT_PATH`, `OZON_BANK_MERCHANT_ID`, `OZON_BANK_API_SECRET`, `OZON_BANK_WEBHOOK_SECRET`, `PAYMENT_SUCCESS_URL`, `PAYMENT_FAIL_URL`.
+- Адаптер: `server/payments/ozonBankAdapter.mjs` — формирует абстрактный payload, подписывает HMAC-SHA256, поддерживает замену URL/заголовков/полей без правок заказа.
+- Данные платежа сохраняются в `order_history` (`payment_*` колонки и блок `order_data.payment`), фронт получает только `payment_url`.
+- Webhook: `POST /api/payments/ozon/webhook`, подпись по `OZON_BANK_WEBHOOK_SECRET`, повторные события безопасны.
+
 ## Архитектура
 
 - `src/main.ts` — инициализация приложения, Pinia, маршрутизация.

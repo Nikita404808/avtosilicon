@@ -8,11 +8,15 @@
 
 <script setup lang="ts">
 import { onMounted } from 'vue';
+import { useRoute } from 'vue-router';
 import { useUiStore } from '@/stores/ui';
 import { useCartStore } from '@/stores/cart';
+import { useSeo } from '@/composables/useSeo';
+import { buildCanonicalFromRoute } from '@/services/seo';
 
 const uiStore = useUiStore();
 const cartStore = useCartStore();
+const route = useRoute();
 
 const reopenCheckout = () => {
   cartStore.toggleCart(true);
@@ -21,6 +25,13 @@ const reopenCheckout = () => {
 
 onMounted(() => {
   reopenCheckout();
+});
+
+useSeo({
+  title: 'Оформление заказа — Автосиликон',
+  description: 'Оформление заказа на патрубки Автосиликон.',
+  canonical: buildCanonicalFromRoute(route),
+  robots: 'noindex,nofollow',
 });
 </script>
 
@@ -42,6 +53,7 @@ onMounted(() => {
     background: var(--accent);
     color: #fff;
     font-weight: 600;
+    margin-left: clamp(8px, 2.5vw, 16px);
   }
 }
 </style>

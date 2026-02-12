@@ -54,8 +54,8 @@
               <input
                 :value="deliveryDraft.pvzSearch.query"
                 type="text"
-                placeholder="Доп. поиск (улица/название)"
-                aria-label="Поиск ПВЗ"
+                placeholder="Доп. поиск (индекс)"
+                aria-label="Поиск ПВЗ по индексу"
                 @input="onPvzQueryChange"
               />
               <button type="button" @click="handleSearchPvz" :disabled="pvzLoading">
@@ -195,8 +195,12 @@
                 <strong>{{ formattedDeliveryPrice }}</strong>
               </div>
               <div>
-                <span>Итого к оплате:</span>
-                <strong>{{ formattedTotalWithDelivery }}</strong>
+                <span>Списываем бонусы:</span>
+                <strong class="checkout__totals-negative">{{ formattedBonusApplied }}</strong>
+              </div>
+              <div class="checkout__totals-final">
+                <span>К оплате:</span>
+                <strong>{{ formattedPayableTotal }}</strong>
               </div>
             </div>
 
@@ -251,7 +255,7 @@ const checkoutStore = useCheckoutStore();
 const { deliveryDraft, deliveryQuote, pvzLoading, pvzError, quoteLoading, quoteError } =
   storeToRefs(checkoutStore);
 
-const bonusBalance = computed(() => userStore.bonusBalance);
+const bonusBalance = computed(() => userStore.bonusBalance ?? 0);
 const formattedBonusBalance = computed(() =>
   bonusBalance.value.toLocaleString('ru-RU', {
     style: 'currency',
@@ -266,6 +270,13 @@ const deliveryPrice = computed(() => deliveryQuote.value.delivery_price);
 const canSubmit = computed(
   () => deliveryPrice.value !== null && !quoteLoading.value && !quoteError.value,
 );
+const deliveryAmount = computed(() => deliveryPrice.value ?? 0);
+const totalBeforeBonuses = computed(() => cartStore.totalAmount + deliveryAmount.value);
+const bonusApplied = computed(() => {
+  if (!useBonuses.value) return 0;
+  const available = Math.max(0, bonusBalance.value);
+  return Math.min(available, totalBeforeBonuses.value);
+});
 
 const formattedDeliveryPrice = computed(() => {
   if (deliveryPrice.value === null) return 'не рассчитана';
@@ -276,10 +287,13 @@ const formattedDeliveryPrice = computed(() => {
 });
 const formattedEta = computed(() => deliveryQuote.value.delivery_eta || '—');
 const formattedGoodsTotal = computed(() => formatCurrency(cartStore.totalAmount, cartStore.currency));
-const formattedTotalWithDelivery = computed(() => {
-  const delivery = deliveryPrice.value ?? 0;
-  return formatCurrency(cartStore.totalAmount + delivery, cartStore.currency);
+const formattedBonusApplied = computed(() => {
+  if (bonusApplied.value <= 0) return formatCurrency(0, cartStore.currency);
+  return `−${formatCurrency(bonusApplied.value, cartStore.currency)}`;
 });
+const formattedPayableTotal = computed(() =>
+  formatCurrency(Math.max(0, totalBeforeBonuses.value - bonusApplied.value), cartStore.currency),
+);
 
 watch(
   () => props.open,
@@ -822,6 +836,14 @@ function formatCurrency(amount: number, currency: string) {
   display: flex;
   justify-content: space-between;
   gap: var(--space-2);
+}
+
+.checkout__totals-negative {
+  color: var(--danger);
+}
+
+.checkout__totals-final strong {
+  font-size: 20px;
 }
 
 .checkout__comment textarea {

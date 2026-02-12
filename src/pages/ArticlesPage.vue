@@ -39,13 +39,23 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import { RouterLink } from 'vue-router';
+import { RouterLink, useRoute } from 'vue-router';
 import { fetchNews } from '@/api/directus';
 import type { NewsItem } from '@/types';
+import { useSeo } from '@/composables/useSeo';
+import { buildCanonicalFromRoute } from '@/services/seo';
 
 const news = ref<NewsItem[]>([]);
 const isLoading = ref(true);
 const error = ref<string | null>(null);
+const route = useRoute();
+
+useSeo({
+  title: 'Новости и статьи — Автосиликон | доставка по РФ',
+  description:
+    'Новости, обновления ассортимента и полезные материалы Автосиликон. Производство армированных патрубков в Балаково, доставка по России.',
+  canonical: buildCanonicalFromRoute(route),
+});
 
 const formatDate = (value: string) => {
   if (!value) return '';
@@ -84,9 +94,13 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  padding-left: 0;
+  padding-right: 0;
 
   h1 {
     margin: 0;
+    padding-left: 0;
+    padding-right: 0;
   }
 }
 
@@ -95,6 +109,8 @@ onMounted(async () => {
   font-size: var(--fz-caption);
   letter-spacing: 0.08em;
   color: var(--accent);
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .news-page__state {
@@ -162,18 +178,24 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .news-card__date {
   text-transform: capitalize;
   font-size: var(--fz-caption);
   color: var(--text-secondary);
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .news-card__title {
   margin: 0;
   font-size: 18px;
   line-height: 1.4;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .news-card__cta {

@@ -51,7 +51,7 @@ export type OrderSummary = {
   id: string;
   number: string;
   createdAt: string;
-  status: 'delivered' | 'processing' | 'cancelled';
+  status: 'delivered' | 'processing' | 'paid' | 'cancelled';
   total: Money;
   items: OrderLine[];
   totalWeight?: number;

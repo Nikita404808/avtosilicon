@@ -31,7 +31,10 @@ async function requestBankApi(path, options) {
         throw new Error(message || 'Bank API request failed');
     }
     const payload = (await response.json());
-    return payload.data;
+    if (payload && typeof payload === 'object' && 'data' in payload) {
+        return payload.data;
+    }
+    return payload;
 }
 export const useUserStore = defineStore('user', {
     state: createDefaultState,
@@ -53,11 +56,12 @@ export const useUserStore = defineStore('user', {
                 return;
             }
             const bonusBalance = normalizeBonusBalance(user.bonusBalance ?? user.bonus_balance ?? this.loyaltyPoints);
+            const phone = resolvePhone(user.phone, this.profile?.phone ?? null);
             this.profile = {
                 id: user.id,
                 email: user.email,
                 name: user.name ?? formatNameFromEmail(user.email),
-                phone: this.profile?.phone,
+                phone: phone ?? undefined,
                 loyaltyPoints: bonusBalance,
                 bonusBalance,
                 emailVerified: user.emailVerified ?? this.profile?.emailVerified ?? false,
@@ -68,10 +72,40 @@ export const useUserStore = defineStore('user', {
             try {
                 const { useAuthStore } = await import('./auth');
                 const authStore = useAuthStore();
-                this.setProfileFromAuth(authStore.user);
+                if (!this.authToken && authStore.token) {
+                    this.setAuthToken(authStore.token);
+                }
+                if (!this.authToken)
+                    return;
+                const profile = await requestBankApi('/users/me', {
+                    headers: { Authorization: `Bearer ${this.authToken}` },
+                });
+                const bonusBalance = normalizeBonusBalance(profile.bonusBalance ?? profile.loyaltyPoints ?? this.loyaltyPoints);
+                const phone = resolvePhone(profile.phone, this.profile?.phone ?? null);
+                this.profile = {
+                    ...this.profile,
+                    ...profile,
+                    phone: phone ?? undefined,
+                    bonusBalance,
+                    loyaltyPoints: bonusBalance,
+                    emailVerified: profile.emailVerified ?? this.profile?.emailVerified ?? false,
+                };
+                authStore.patchUser({
+                    name: this.profile?.name ?? undefined,
+                    emailVerified: this.profile?.emailVerified ?? undefined,
+                    bonusBalance,
+                });
             }
             catch (error) {
-                console.error('[User] Failed to sync profile from auth store', error);
+                console.error('[User] Failed to sync profile', error);
+                try {
+                    const { useAuthStore } = await import('./auth');
+                    const authStore = useAuthStore();
+                    this.setProfileFromAuth(authStore.user);
+                }
+                catch (syncError) {
+                    console.error('[User] Failed to apply fallback auth profile', syncError);
+                }
             }
             finally {
                 this.isLoadingProfile = false;
@@ -87,19 +121,38 @@ export const useUserStore = defineStore('user', {
                     body: JSON.stringify(patch),
                     headers: { Authorization: `Bearer ${this.authToken}` },
                 });
+                const phone = resolvePhone(updated.phone ?? patch.phone, this.profile?.phone ?? null);
                 this.profile = {
                     ...this.profile,
                     ...updated,
+                    phone: phone ?? undefined,
                     bonusBalance: this.profile?.bonusBalance,
                     loyaltyPoints: this.profile?.loyaltyPoints,
                 };
             }
             catch (error) {
                 logBankError(error);
-                this.profile = { ...this.profile, ...patch };
+                const phone = resolvePhone(patch.phone, this.profile?.phone ?? null);
+                this.profile = { ...this.profile, ...patch, phone: phone ?? undefined };
             }
             finally {
                 this.isLoadingProfile = false;
+            }
+        },
+        async updatePhone(phone) {
+            if (!this.authToken)
+                throw new Error('Требуется авторизация');
+            const trimmed = phone.trim();
+            const digits = trimmed.replace(/\D/g, '');
+            if (trimmed && (digits.length < 10 || digits.length > 15)) {
+                throw new Error('Введите корректный телефон.');
+            }
+            await requestAuthApi('/users/me/phone', this.authToken, {
+                method: 'PUT',
+                body: JSON.stringify({ phone: trimmed }),
+            });
+            if (this.profile) {
+                this.profile.phone = trimmed || undefined;
             }
         },
         async updateName(name) {
@@ -349,6 +402,15 @@ function logBankError(error) {
 }
 function logAuthError(error) {
     console.error('[Auth API]', error);
+}
+function resolvePhone(nextPhone, fallback) {
+    if (typeof nextPhone === 'string') {
+        return nextPhone.trim();
+    }
+    if (typeof fallback === 'string') {
+        return fallback.trim();
+    }
+    return null;
 }
 function findProduct(productId) {
     return fallbackProducts.find((product) => product.legacyId === productId || String(product.id) === productId);

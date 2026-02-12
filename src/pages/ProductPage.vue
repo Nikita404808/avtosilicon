@@ -59,6 +59,8 @@ import Gallery from '@/components/product/Gallery.vue';
 import BuyBox from '@/components/product/BuyBox.vue';
 import SpecsTable from '@/components/product/SpecsTable.vue';
 import RelatedGrid from '@/components/product/RelatedGrid.vue';
+import { useSeo } from '@/composables/useSeo';
+import { buildCanonicalFromRoute, getBrandName, getDefaultOgImageUrl } from '@/services/seo';
 
 const route = useRoute();
 const catalogStore = useCatalogStore();
@@ -89,6 +91,92 @@ const related = computed(() => {
     })
     .slice(0, 4);
 });
+
+const defaultProductTitle = 'Карточка товара — Автосиликон | доставка по РФ';
+
+const cleanText = (text: string, limit = 200) => {
+  const stripped = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (stripped.length <= limit) return stripped;
+  return `${stripped.slice(0, limit - 1).trimEnd()}…`;
+};
+
+const formatPrice = (price: number | null) => {
+  if (price === null || Number.isNaN(price)) return null;
+  return `${price.toLocaleString('ru-RU')} ₽`;
+};
+
+const canonical = computed(() => buildCanonicalFromRoute(route));
+const seoMeta = computed(() => {
+  const item = product.value;
+  const image = item?.images?.[0] ?? getDefaultOgImageUrl();
+  const extraParts = [item?.partType?.name, item?.carModel?.name].filter(Boolean) as string[];
+  const title =
+    item && extraParts.length > 0
+      ? `${item.name} (${extraParts.join(', ')}) — Автосиликон | доставка по РФ`
+      : item
+        ? `${item?.name} — купить в Автосиликон | Балаково, доставка по РФ`
+        : defaultProductTitle;
+
+  const description = (() => {
+    if (!item) return undefined;
+    if (item.description) {
+      return cleanText(item.description, 200);
+    }
+    const fragments = [item.name];
+    if (extraParts.length) {
+      fragments.push(extraParts.join(', '));
+    }
+    const price = formatPrice(item.price);
+    if (price) fragments.push(`Цена: ${price}.`);
+    fragments.push(`В наличии: ${item.inStock ? 'есть' : 'уточняйте'}.`);
+    fragments.push('Производство Автосиликон (Балаково). Доставка по России.');
+    return fragments.join(' ');
+  })();
+
+  const jsonLd = item
+    ? (() => {
+        const price = item.price ?? undefined;
+        const availability = item.inStock
+          ? 'https://schema.org/InStock'
+          : 'https://schema.org/OutOfStock';
+        const offer: Record<string, unknown> = {
+          '@type': 'Offer',
+          priceCurrency: 'RUB',
+          availability,
+          url: canonical.value,
+        };
+        if (typeof price === 'number') {
+          offer.price = price;
+        }
+        return {
+          '@context': 'https://schema.org',
+          '@type': 'Product',
+          name: item.name,
+          description: description ?? undefined,
+          image: item.images?.length ? item.images : [image],
+          brand: {
+            '@type': 'Brand',
+            name: getBrandName(),
+          },
+          sku: item.sku ?? undefined,
+          gtin13: item.barcode ?? undefined,
+          offers: offer,
+        };
+      })()
+    : null;
+
+  return {
+    title,
+    description,
+    canonical: canonical.value,
+    ogType: 'product',
+    ogImage: image,
+    twitterImage: image,
+    jsonLd,
+  };
+});
+
+useSeo(seoMeta);
 
 onMounted(() => {
   catalogStore.fetchProducts();

@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import { applySeo, buildCanonicalFromRoute } from '@/services/seo';
 const routes = [
     {
         path: '/',
@@ -79,6 +80,18 @@ const routes = [
         meta: { title: 'Оплата — АВТОСИЛИКОН' },
     },
     {
+        path: '/payment/success',
+        name: 'payment-success',
+        component: () => import('@/pages/PaymentSuccess.vue'),
+        meta: { title: 'Оплата прошла успешно — АВТОСИЛИКОН' },
+    },
+    {
+        path: '/payment/fail',
+        name: 'payment-fail',
+        component: () => import('@/pages/PaymentFail.vue'),
+        meta: { title: 'Оплата не прошла — АВТОСИЛИКОН' },
+    },
+    {
         path: '/policy',
         name: 'policy',
         component: () => import('@/pages/Policy.vue'),
@@ -99,8 +112,10 @@ const router = createRouter({
     },
 });
 router.afterEach((to) => {
-    if (typeof to.meta.title === 'string') {
-        document.title = to.meta.title;
-    }
+    const metaTitle = typeof to.meta.title === 'string' ? to.meta.title : undefined;
+    applySeo({
+        title: metaTitle,
+        canonical: buildCanonicalFromRoute(to),
+    });
 });
 export default router;

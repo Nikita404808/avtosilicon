@@ -27,6 +27,10 @@
 </template>
 
 <script setup lang="ts">
+import { useRoute } from 'vue-router';
+import { useSeo } from '@/composables/useSeo';
+import { buildCanonicalFromRoute } from '@/services/seo';
+
 const options = [
   {
     title: 'Банковские карты',
@@ -39,6 +43,15 @@ const options = [
     points: ['Доступно для заказов до 15 000 ₽', 'Комиссию оплачивает покупатель', 'Проверка товара до оплаты'],
   },
 ];
+
+const route = useRoute();
+
+useSeo({
+  title: 'Оплата заказов — Автосиликон',
+  description:
+    'Оплата силиконовых патрубков: банковские карты, безналичный расчёт, наложенный платёж. Безопасно, с чеками и поддержкой для юрлиц.',
+  canonical: buildCanonicalFromRoute(route),
+});
 </script>
 
 <style scoped lang="scss">

@@ -118,7 +118,7 @@ function loadPersistedDraft(): DeliveryDraft | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as DeliveryDraft;
-    return {
+    const draft = {
       ...defaultDraft(),
       ...parsed,
       pvzSearch: { ...defaultDraft().pvzSearch, ...(parsed?.pvzSearch ?? {}) },
@@ -126,6 +126,18 @@ function loadPersistedDraft(): DeliveryDraft | null {
       recipient: { ...defaultDraft().recipient, ...(parsed?.recipient ?? {}) },
       pvzResults: Array.isArray(parsed?.pvzResults) ? parsed.pvzResults : [],
     };
+
+    if (
+      draft.provider === 'ruspost' &&
+      typeof draft.pickup_point_id === 'string' &&
+      draft.pickup_point_id.startsWith('9')
+    ) {
+      draft.pickup_point_id = null;
+      draft.pickup_point_address = null;
+      draft.provider_metadata = {};
+    }
+
+    return draft;
   } catch {
     return null;
   }

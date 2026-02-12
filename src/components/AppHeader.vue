@@ -63,7 +63,7 @@
           type="button"
           :aria-expanded="isMenuOpen ? 'true' : 'false'"
           aria-label="Открыть меню"
-          @click="toggleMenu()"
+          @click.prevent="toggleMenu()"
         >
           <span></span>
           <span></span>
@@ -72,56 +72,65 @@
       </div>
     </div>
 
-    <transition name="header-fade">
-      <div v-if="isMenuOpen" class="header__mobile-overlay" @click="toggleMenu(false)"></div>
-    </transition>
-    <transition name="header-slide">
-      <section v-if="isMenuOpen" class="header__mobile-menu" aria-label="Мобильная навигация">
-        <div class="header__mobile-head">
-          <span>Навигация</span>
-          <button type="button" aria-label="Закрыть меню" @click="toggleMenu(false)">✕</button>
-        </div>
-        <nav class="header__mobile-nav">
-          <RouterLink
-            v-for="link in navLinks"
-            :key="link.to"
-            :to="link.to"
-            class="header__mobile-link"
-            @click="closeMenu"
-          >
-            {{ link.label }}
-          </RouterLink>
-        </nav>
-        <div class="header__mobile-auth">
-          <template v-if="authStore.isAuthenticated">
-            <button type="button" class="header__mobile-action" @click="openAccount">
-              Личный кабинет
-            </button>
-            <button
-              type="button"
-              class="header__mobile-action header__mobile-action--ghost"
-              @click="logout"
-            >
-              Выйти
-            </button>
-          </template>
-          <template v-else>
-            <div class="header__mobile-auth-grid">
-              <button type="button" class="header__mobile-action" @click="openLogin">
-                Войти
-              </button>
-              <button
-                type="button"
-                class="header__mobile-action header__mobile-action--ghost"
-                @click="openRegister"
+    <Teleport to="body">
+      <Transition name="drawer">
+        <aside
+          v-if="isMenuOpen"
+          class="drawer header__mobile-drawer"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Мобильная навигация"
+          @keydown.esc="toggleMenu(false)"
+        >
+          <div class="drawer__backdrop" @click="toggleMenu(false)" />
+          <div class="drawer__panel" ref="panelRef" tabindex="-1">
+            <header class="drawer__header header__mobile-head">
+              <span>Навигация</span>
+              <button type="button" aria-label="Закрыть меню" @click="toggleMenu(false)">✕</button>
+            </header>
+            <nav class="drawer__body header__mobile-nav">
+              <RouterLink
+                v-for="link in navLinks"
+                :key="link.to"
+                :to="link.to"
+                class="header__mobile-link"
+                @click="closeMenu"
               >
-                Регистрация
-              </button>
-            </div>
-          </template>
-        </div>
-      </section>
-    </transition>
+                {{ link.label }}
+              </RouterLink>
+            </nav>
+            <footer class="drawer__footer header__mobile-auth">
+              <template v-if="authStore.isAuthenticated">
+                <button type="button" class="header__mobile-action" @click="openAccount">
+                  Личный кабинет
+                </button>
+                <button
+                  type="button"
+                  class="header__mobile-action header__mobile-action--ghost"
+                  @click="logout"
+                >
+                  Выйти
+                </button>
+              </template>
+              <template v-else>
+                <div class="header__mobile-auth-grid">
+                  <button type="button" class="header__mobile-action" @click="openLogin">
+                    Войти
+                  </button>
+                  <button
+                    type="button"
+                    class="header__mobile-action header__mobile-action--ghost"
+                    @click="openRegister"
+                  >
+                    Регистрация
+                  </button>
+                </div>
+              </template>
+            </footer>
+          </div>
+        </aside>
+      </Transition>
+    </Teleport>
   </header>
 </template>
 
@@ -134,10 +143,23 @@ const router = useRouter();
 const route = useRoute();
 const cartStore = useCartStore();
 const authStore = useAuthStore();
+const panelRef = ref<HTMLElement | null>(null);
 
 const isScrolled = ref(false);
 const isMenuOpen = ref(false);
 const DESKTOP_BREAKPOINT = 1024;
+const bodyLockState = {
+  isLocked: false,
+  scrollY: 0,
+  previous: {
+    position: '',
+    top: '',
+    left: '',
+    right: '',
+    width: '',
+    overflow: '',
+  },
+};
 
 const navLinks = [
   { to: '/catalog', label: 'Каталог' },
@@ -160,7 +182,9 @@ const closeMenu = () => {
 };
 
 const toggleMenu = (force?: boolean) => {
-  isMenuOpen.value = typeof force === 'boolean' ? force : !isMenuOpen.value;
+  const next = typeof force === 'boolean' ? force : !isMenuOpen.value;
+  if (next === isMenuOpen.value) return;
+  isMenuOpen.value = next;
 };
 
 const handleAuthTap = () => {
@@ -203,6 +227,42 @@ const handleResize = () => {
   }
 };
 
+const lockBodyScroll = (shouldLock: boolean) => {
+  if (typeof window === 'undefined') return;
+  const body = document.body;
+
+  if (shouldLock && !bodyLockState.isLocked) {
+    bodyLockState.scrollY = window.scrollY;
+    bodyLockState.previous.position = body.style.position;
+    bodyLockState.previous.top = body.style.top;
+    bodyLockState.previous.left = body.style.left;
+    bodyLockState.previous.right = body.style.right;
+    bodyLockState.previous.width = body.style.width;
+    bodyLockState.previous.overflow = body.style.overflow;
+
+    body.style.position = 'fixed';
+    body.style.top = `-${bodyLockState.scrollY}px`;
+    body.style.left = '0';
+    body.style.right = '0';
+    body.style.width = '100%';
+    body.style.overflow = 'hidden';
+
+    bodyLockState.isLocked = true;
+    return;
+  }
+
+  if (!shouldLock && bodyLockState.isLocked) {
+    body.style.position = bodyLockState.previous.position;
+    body.style.top = bodyLockState.previous.top;
+    body.style.left = bodyLockState.previous.left;
+    body.style.right = bodyLockState.previous.right;
+    body.style.width = bodyLockState.previous.width;
+    body.style.overflow = bodyLockState.previous.overflow;
+    window.scrollTo(0, bodyLockState.scrollY);
+    bodyLockState.isLocked = false;
+  }
+};
+
 onMounted(() => {
   window.addEventListener('scroll', handleScroll, { passive: true });
   window.addEventListener('resize', handleResize);
@@ -211,6 +271,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll);
   window.removeEventListener('resize', handleResize);
+  lockBodyScroll(false);
 });
 
 watch(
@@ -219,21 +280,37 @@ watch(
     closeMenu();
   },
 );
+
+watch(
+  () => isMenuOpen.value,
+  (value) => {
+    if (value) {
+      requestAnimationFrame(() => {
+        panelRef.value?.focus();
+      });
+    }
+    lockBodyScroll(value);
+  },
+  { flush: 'sync' },
+);
 </script>
 
 <style scoped lang="scss">
 .header {
+  --header-padding-y: var(--space-4);
+  --header-min-height: 84px;
   position: sticky;
   inset: 0 0 auto 0;
   z-index: 200;
   background: linear-gradient(90deg, var(--brand-primary), var(--accent));
-  padding: var(--space-4) 0;
-  min-height: 64px;
-  transition: box-shadow 160ms ease-out, padding 160ms ease-out;
+  padding: var(--header-padding-y) 0;
+  min-height: var(--header-min-height);
+  box-sizing: border-box;
+  transition: box-shadow 160ms ease-out, background 160ms ease-out, backdrop-filter 160ms ease-out;
 
   &--scrolled {
-    padding: var(--space-2) 0;
     box-shadow: var(--shadow-md);
+    backdrop-filter: blur(6px);
   }
 }
 
@@ -498,30 +575,35 @@ watch(
   transform: translateY(-4px) rotate(-45deg);
 }
 
-.header__mobile-overlay {
+.drawer {
   position: fixed;
   inset: 0;
-  background: rgba(8, 17, 40, 0.5);
-  z-index: 150;
+  z-index: 200;
+  display: flex;
+  will-change: opacity, transform;
 }
 
-.header__mobile-menu {
-  position: fixed;
-  top: 0;
-  right: 0;
-  width: min(320px, 80vw);
-  height: 100vh;
+.drawer__backdrop {
+  flex: 1;
+  background: rgba(19, 0, 21, 0.6);
+}
+
+.drawer__panel {
+  width: min(420px, 90vw);
   background: var(--surface);
-  color: var(--text-primary);
-  padding: var(--space-6) var(--space-4);
-  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  z-index: 200;
+  max-height: 100vh;
+  margin-left: auto;
+  padding: var(--space-5);
+  gap: var(--space-5);
+  box-shadow: var(--shadow-lg);
+  outline: none;
+  will-change: transform, opacity;
 }
 
-.header__mobile-head {
+.drawer__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -535,10 +617,14 @@ watch(
   }
 }
 
-.header__mobile-nav {
+.drawer__body {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding-right: var(--space-1);
 }
 
 .header__mobile-link {
@@ -554,7 +640,6 @@ watch(
 }
 
 .header__mobile-auth {
-  margin-top: auto;
   display: grid;
   gap: var(--space-2);
 }
@@ -581,24 +666,22 @@ watch(
   color: var(--text-primary);
 }
 
-.header-fade-enter-active,
-.header-fade-leave-active {
-  transition: opacity 160ms ease;
+.drawer__footer {
+  margin-top: auto;
+  display: grid;
+  gap: var(--space-3);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
 }
 
-.header-fade-enter-from,
-.header-fade-leave-to {
+.drawer-enter-from,
+.drawer-leave-to {
   opacity: 0;
-}
-
-.header-slide-enter-active,
-.header-slide-leave-active {
-  transition: transform 200ms ease;
-}
-
-.header-slide-enter-from,
-.header-slide-leave-to {
   transform: translateX(100%);
+}
+
+.drawer-enter-active,
+.drawer-leave-active {
+  transition: transform 200ms ease, opacity 200ms ease;
 }
 
 .sr-only {
@@ -614,7 +697,8 @@ watch(
 
 @media (max-width: 1024px) {
   .header {
-    padding: var(--space-3) 0;
+    --header-padding-y: var(--space-3);
+    --header-min-height: 72px;
   }
 
   .header__nav,
@@ -637,7 +721,7 @@ watch(
 
 @media (min-width: 768px) and (max-width: 1200px) {
   .header {
-    min-height: 72px;
+    --header-min-height: 92px;
   }
 
   .header__brand-name {
@@ -657,9 +741,10 @@ watch(
 }
 
 @media (max-width: $breakpoint-mobile) {
-  .header__mobile-menu {
-    width: 100%;
-    max-width: none;
+  .drawer__panel {
+    width: 100vw;
+    border-radius: 0;
+    padding: var(--space-4);
   }
 }
 </style>
