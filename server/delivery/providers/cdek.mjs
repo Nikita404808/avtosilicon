@@ -250,21 +250,18 @@ export async function createShipment(options) {
     ...(normalizedType === 'pvz' && pickup_point_id ? { delivery_point: String(pickup_point_id) } : {}),
   };
 
-  const response = await fetch(`${BASE_URL}/orders`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
-
-  const text = await safeText(response);
-  const body = parseJson(text);
-  if (!response.ok) {
-    const message = body?.message ?? text ?? `HTTP ${response.status}`;
+  let result = await submitOrder(token, payload);
+  // Some CDEK accounts reject pvz payload when to_location is combined with delivery_point.
+  if (!result.ok && normalizedType === 'pvz' && hasCdekErrorCode(result.body, 'v2_delivery_address_multivalued')) {
+    const retryPayload = { ...payload };
+    delete retryPayload.to_location;
+    result = await submitOrder(token, retryPayload);
+  }
+  if (!result.ok) {
+    const message = result.body?.message ?? result.text ?? `HTTP ${result.status}`;
     throw new Error(`CDEK: не удалось создать отправление. ${message}`);
   }
+  const body = result.body;
 
   const providerOrderId =
     body?.entity?.uuid ??
@@ -280,6 +277,38 @@ export async function createShipment(options) {
     payload,
     response: body ?? text ?? null,
   };
+}
+
+async function submitOrder(token, payload) {
+  const response = await fetch(`${BASE_URL}/orders`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const text = await safeText(response);
+  const body = parseJson(text);
+  return {
+    ok: response.ok,
+    status: response.status,
+    text,
+    body,
+  };
+}
+
+function hasCdekErrorCode(payload, code) {
+  const list = Array.isArray(payload?.requests) ? payload.requests : [];
+  for (const request of list) {
+    const errors = Array.isArray(request?.errors) ? request.errors : [];
+    for (const item of errors) {
+      if (String(item?.code ?? '').trim() === String(code)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 async function getToken() {
