@@ -36,6 +36,16 @@ export async function listTariffs(options) {
   return handler.listTariffs({ ...options, provider, type });
 }
 
+export async function createShipment(options) {
+  const provider = normalizeProvider(options?.provider);
+  const type = normalizeType(provider, options?.type);
+  const handler = providerMap[provider];
+  if (!handler?.createShipment) {
+    throw new Error(`Провайдер ${provider} не поддерживает создание отправления.`);
+  }
+  return handler.createShipment({ ...options, provider, type });
+}
+
 function normalizeProvider(provider) {
   const key = typeof provider === 'string' ? provider.toLowerCase() : '';
   if (!isProviderAllowed(key)) {

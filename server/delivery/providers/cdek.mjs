@@ -2,6 +2,14 @@ const BASE_URL = process.env.CDEK_API_URL || 'https://api.cdek.ru/v2';
 const clientId = process.env.CDEK_CLIENT_ID;
 const clientSecret = process.env.CDEK_CLIENT_SECRET;
 const originCityCode = process.env.CDEK_ORIGIN_CITY_CODE;
+const senderName = process.env.CDEK_SENDER_NAME || 'Avtosilicon';
+const senderPhone = process.env.CDEK_SENDER_PHONE || '+79000000000';
+const senderEmail = process.env.CDEK_SENDER_EMAIL || null;
+const defaultPackageLength = Number(process.env.CDEK_DEFAULT_LENGTH ?? 10);
+const defaultPackageWidth = Number(process.env.CDEK_DEFAULT_WIDTH ?? 10);
+const defaultPackageHeight = Number(process.env.CDEK_DEFAULT_HEIGHT ?? 10);
+const defaultTariffPvz = Number(process.env.CDEK_DEFAULT_TARIFF_PVZ ?? 136);
+const defaultTariffDoor = Number(process.env.CDEK_DEFAULT_TARIFF_DOOR ?? 137);
 
 let tokenCache = {
   accessToken: null,
@@ -182,6 +190,98 @@ export async function listTariffs({ type, total_weight, pickup_point_id, address
     .filter((item) => item.tariff_code && Number.isFinite(Number(item.delivery_price)));
 }
 
+export async function createShipment(options) {
+  const {
+    order_id,
+    order_number,
+    type,
+    total_weight,
+    pickup_point_id,
+    address,
+    recipient,
+    tariff_code,
+    provider_metadata,
+    items,
+    comment,
+  } = options ?? {};
+
+  const token = await getToken();
+  const originCityCodeNumber = resolveRequiredCityCode(originCityCode, 'CDEK_ORIGIN_CITY_CODE');
+  const normalizedType = type === 'door' ? 'door' : 'pvz';
+  const normalizedRecipient = normalizeRecipient(recipient);
+
+  const toLocation = await resolveDestination({
+    token,
+    type: normalizedType,
+    pickupPointId: pickup_point_id,
+    address,
+    providerMetadata: provider_metadata,
+  });
+
+  const number = sanitizeShipmentNumber(
+    order_number ? String(order_number) : `AS-${String(order_id ?? Date.now())}`,
+  );
+  const payload = {
+    type: 1,
+    number,
+    tariff_code: resolveTariffCode(tariff_code, normalizedType),
+    comment: stringOrEmpty(comment) || undefined,
+    sender: {
+      name: senderName,
+      phones: [{ number: normalizePhone(senderPhone) }],
+      ...(senderEmail ? { email: senderEmail } : {}),
+    },
+    recipient: normalizedRecipient,
+    from_location: {
+      city_code: originCityCodeNumber,
+      code: originCityCodeNumber,
+    },
+    to_location: toLocation,
+    packages: [
+      {
+        number: `${number}-1`,
+        weight: toWeightGrams(total_weight),
+        length: normalizeDimension(defaultPackageLength),
+        width: normalizeDimension(defaultPackageWidth),
+        height: normalizeDimension(defaultPackageHeight),
+        ...(Array.isArray(items) && items.length ? { items: normalizeItems(items) } : {}),
+      },
+    ],
+    ...(normalizedType === 'pvz' && pickup_point_id ? { delivery_point: String(pickup_point_id) } : {}),
+  };
+
+  const response = await fetch(`${BASE_URL}/orders`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const text = await safeText(response);
+  const body = parseJson(text);
+  if (!response.ok) {
+    const message = body?.message ?? text ?? `HTTP ${response.status}`;
+    throw new Error(`CDEK: не удалось создать отправление. ${message}`);
+  }
+
+  const providerOrderId =
+    body?.entity?.uuid ??
+    body?.entity?.cdek_number ??
+    body?.requests?.[0]?.request_uuid ??
+    body?.request_uuid ??
+    null;
+  const trackNumber = body?.entity?.cdek_number ?? body?.entity?.barcode ?? null;
+
+  return {
+    provider_order_id: providerOrderId ? String(providerOrderId) : null,
+    track_number: trackNumber ? String(trackNumber) : null,
+    payload,
+    response: body ?? text ?? null,
+  };
+}
+
 async function getToken() {
   if (tokenCache.accessToken && tokenCache.expiresAt - Date.now() > 60_000) {
     return tokenCache.accessToken;
@@ -240,6 +340,42 @@ async function resolveCityCode(cityQuery) {
   const cities = await response.json();
   const match = Array.isArray(cities) ? cities[0] : null;
   return match?.code ?? null;
+}
+
+async function resolveDestination({ token, type, pickupPointId, address, providerMetadata }) {
+  if (type === 'pvz') {
+    if (!pickupPointId) {
+      throw new Error('CDEK: pickup_point_id обязателен для отправки в ПВЗ.');
+    }
+    const point = await fetchPointByCode(token, String(pickupPointId));
+    if (!point) {
+      throw new Error('CDEK: не удалось получить данные выбранного ПВЗ.');
+    }
+    const pointCityCode =
+      point?.location?.city_code ??
+      point?.location?.cityCode ??
+      providerMetadata?.to_city_code ??
+      null;
+    const toCityCodeNumber = resolveRequiredCityCode(pointCityCode, 'to_city_code');
+    return {
+      city_code: toCityCodeNumber,
+      code: toCityCodeNumber,
+    };
+  }
+
+  const toAddress = normalizeAddress(address);
+  const toCityCode =
+    providerMetadata?.to_city_code ??
+    (await resolveCityCodeByAddress(toAddress));
+  if (!toCityCode) {
+    throw new Error('CDEK: не удалось определить город получателя.');
+  }
+  const toCityCodeNumber = resolveRequiredCityCode(toCityCode, 'to_city_code');
+  return {
+    city_code: toCityCodeNumber,
+    code: toCityCodeNumber,
+    address: buildAddressLine(toAddress),
+  };
 }
 
 async function resolveCityCodeByPostal(postalCode) {
@@ -527,6 +663,79 @@ function normalizeAddress(raw) {
   };
 }
 
+function buildAddressLine(address) {
+  const parts = [address.city, address.street, address.house, address.flat ? `кв. ${address.flat}` : '']
+    .map((part) => stringOrEmpty(part))
+    .filter(Boolean);
+  return parts.join(', ');
+}
+
+function normalizeRecipient(raw) {
+  const safe = raw && typeof raw === 'object' ? raw : {};
+  const name = stringOrEmpty(safe.full_name) || stringOrEmpty(safe.name) || 'Получатель';
+  const phone = normalizePhone(safe.phone);
+  const email = stringOrEmpty(safe.email);
+  return {
+    name,
+    phones: [{ number: phone }],
+    ...(email ? { email } : {}),
+  };
+}
+
+function normalizePhone(value) {
+  const raw = typeof value === 'string' ? value : value == null ? '' : String(value);
+  const normalized = raw.replace(/[^\d+]/g, '');
+  if (!normalized) return '+79000000000';
+  if (normalized.startsWith('+')) return normalized;
+  return `+${normalized}`;
+}
+
+function normalizeDimension(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 10;
+  return Math.ceil(numeric);
+}
+
+function normalizeItems(items) {
+  const list = items
+    .map((item, index) => {
+      const quantity = Number(item?.quantity);
+      const amount = Number(item?.price);
+      const name = stringOrEmpty(item?.title) || stringOrEmpty(item?.name) || `Товар ${index + 1}`;
+      return {
+        name,
+        ware_key: String(item?.productId ?? item?.id ?? index + 1),
+        payment: {
+          value: Number.isFinite(amount) && amount >= 0 ? Math.round(amount) : 0,
+        },
+        cost: Number.isFinite(amount) && amount >= 0 ? Math.round(amount) : 0,
+        amount: Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1,
+        weight: 1,
+      };
+    })
+    .filter(Boolean);
+  return list;
+}
+
+function resolveTariffCode(value, type) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return Math.floor(numeric);
+  const fallback = type === 'pvz' ? defaultTariffPvz : defaultTariffDoor;
+  if (!Number.isFinite(fallback) || fallback <= 0) {
+    throw new Error('CDEK: не удалось определить tariff_code для отправления.');
+  }
+  return Math.floor(fallback);
+}
+
+function sanitizeShipmentNumber(value) {
+  const sanitized = String(value ?? '')
+    .trim()
+    .replace(/[^0-9A-Za-z_-]/g, '-')
+    .slice(0, 40);
+  if (!sanitized) return `AS-${Date.now()}`;
+  return sanitized;
+}
+
 function toWeightGrams(weightKg) {
   const weight = Number(weightKg);
   if (!Number.isFinite(weight) || weight <= 0) {
@@ -590,5 +799,14 @@ async function safeText(response) {
     return await response.text();
   } catch (error) {
     return '';
+  }
+}
+
+function parseJson(value) {
+  if (!value || typeof value !== 'string') return null;
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return null;
   }
 }

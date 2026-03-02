@@ -4,6 +4,11 @@ const acceptanceIndex = process.env.RUSPOST_ACCEPTANCE_INDEX;
 const objectCode = process.env.RUSPOST_OBJECT_CODE;
 const pvzProxyUrl = process.env.RUSPOST_PVZ_PROXY_URL;
 const calcProxyUrl = process.env.RUSPOST_CALC_PROXY_URL;
+const shipmentApiBase = process.env.RUSPOST_SHIPMENT_API_BASE || 'https://otpravka-api.pochta.ru';
+const shipmentCreatePath = process.env.RUSPOST_SHIPMENT_CREATE_PATH || '/1.0/user/backlog';
+const shipmentCreateUrl = process.env.RUSPOST_SHIPMENT_CREATE_URL || `${shipmentApiBase}${shipmentCreatePath}`;
+const ruspostAccessToken = process.env.RUSPOST_ACCESS_TOKEN || process.env.RUSPOST_API_KEY || '';
+const ruspostUserAuthorization = process.env.RUSPOST_USER_AUTH || '';
 const isDev = process.env.NODE_ENV !== 'production';
 
 export async function searchPvz({ query, city, lat, lon }) {
@@ -239,6 +244,102 @@ export async function listTariffs(options) {
   }
 }
 
+export async function createShipment(options) {
+  const endpoint = String(shipmentCreateUrl || '').trim();
+  if (!endpoint) {
+    throw new Error(
+      'RUSPOST: создание отправления не настроено (RUSPOST_SHIPMENT_CREATE_URL).',
+    );
+  }
+
+  const normalizedType = options?.type === 'door' ? 'door' : 'pvz';
+  const recipient = normalizeRecipient(options?.recipient);
+  const toAddress = normalizeAddress(options?.address);
+  const toIndex =
+    normalizedType === 'pvz'
+      ? normalizePostalIndex(options?.pickup_point_id, 'pickup_point_id')
+      : normalizePostalIndex(toAddress.postal_code, 'address.postal_code');
+
+  const payload = {
+    'order-num': String(options?.order_number ?? options?.order_id ?? `AS-${Date.now()}`),
+    'mail-type': String(objectCode || '4030'),
+    'mail-category': 'ORDINARY',
+    'index-to': toIndex,
+    mass: toWeightGrams(options?.total_weight),
+    'recipient-name': recipient.name,
+    'tel-address': recipient.phone,
+    'given-name': recipient.name,
+    'fragile': false,
+    'completeness-checking': false,
+    'sms-notice-recipient': 1,
+    'transport-type': 'SURFACE',
+    'postoffice-code': normalizeEnvPostalIndexOptional(officeIndex) ?? requireAcceptanceIndex(),
+    ...(recipient.email ? { 'email': recipient.email } : {}),
+    ...(toAddress.city ? { 'place-to': toAddress.city } : {}),
+    ...(toAddress.region ? { 'region-to': toAddress.region } : {}),
+    ...(toAddress.street ? { 'street-to': toAddress.street } : {}),
+    ...(toAddress.house ? { 'house-to': toAddress.house } : {}),
+    ...(toAddress.flat ? { 'room-to': toAddress.flat } : {}),
+    ...(String(options?.comment ?? '').trim() ? { 'comment': String(options.comment).trim() } : {}),
+  };
+
+  const headers = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+  if (ruspostAccessToken) {
+    headers.Authorization = `AccessToken ${ruspostAccessToken}`;
+    headers['X-API-Key'] = ruspostAccessToken;
+  }
+  if (ruspostUserAuthorization) {
+    headers['X-User-Authorization'] = /^basic\s/i.test(ruspostUserAuthorization)
+      ? ruspostUserAuthorization
+      : `Basic ${ruspostUserAuthorization}`;
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  });
+
+  const bodyText = await safeText(response);
+  const data = parseJson(bodyText);
+
+  if (!response.ok) {
+    const message = data?.message ?? bodyText ?? `HTTP ${response.status}`;
+    throw new Error(`RUSPOST: не удалось создать отправление. ${message}`);
+  }
+
+  const providerOrderId =
+    data?.provider_order_id ??
+    data?.shipment_id ??
+    data?.id ??
+    data?.barcode ??
+    null;
+  const trackNumber = data?.track_number ?? data?.barcode ?? null;
+
+  return {
+    provider_order_id: providerOrderId ? String(providerOrderId) : null,
+    track_number: trackNumber ? String(trackNumber) : null,
+    payload,
+    response: data ?? bodyText ?? null,
+  };
+}
+
+function normalizeRecipient(raw) {
+  const safe = raw && typeof raw === 'object' ? raw : {};
+  const name = String(safe.full_name ?? safe.name ?? '').trim() || 'Получатель';
+  const phoneRaw = String(safe.phone ?? '').replace(/[^\d+]/g, '');
+  const phone = phoneRaw.startsWith('+')
+    ? phoneRaw
+    : phoneRaw
+      ? `+${phoneRaw}`
+      : '+79000000000';
+  const email = String(safe.email ?? '').trim();
+  return { name, phone, email };
+}
+
 function requireAcceptanceIndex() {
   const raw = typeof acceptanceIndex === 'string' ? acceptanceIndex.trim() : acceptanceIndex;
   if (!raw) {
@@ -404,6 +505,15 @@ async function safeText(response) {
     return await response.text();
   } catch (error) {
     return '';
+  }
+}
+
+function parseJson(value) {
+  if (!value || typeof value !== 'string') return null;
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return null;
   }
 }
 

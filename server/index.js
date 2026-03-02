@@ -10,6 +10,7 @@ import {
   searchPvz as searchDeliveryPvz,
   calculate as calculateDelivery,
   listTariffs as listDeliveryTariffs,
+  createShipment as createDeliveryShipment,
 } from './delivery/index.mjs';
 
 const requiredEnv = ['DATABASE_URL'];
@@ -1462,6 +1463,17 @@ async function handleAlfaCallback(req, res) {
       return;
     }
 
+    if (sideEffectResult.transitionedToPaid) {
+      const dispatchResult = await tryCreateProviderShipmentForPaidOrder(orderId);
+      if (!dispatchResult.ok && dispatchResult.code !== 'already_dispatched') {
+        console.error('Failed to create provider shipment after payment callback', {
+          orderId,
+          code: dispatchResult.code,
+          message: dispatchResult.message,
+        });
+      }
+    }
+
     sendJson(res, 200, { ok: true });
   } catch (error) {
     console.error('Alfa callback handling failed:', error);
@@ -1648,6 +1660,7 @@ async function applyPaymentOutcomeEffects(orderId, incomingPaymentStatus) {
     const wasPaid = isPaymentSuccessStatus(currentPaymentStatus);
     const isPaid = isPaymentSuccessStatus(nextPaymentStatus);
     const isFailed = isPaymentFailureStatus(nextPaymentStatus);
+    const transitionedToPaid = isPaid && !wasPaid;
 
     const orderData =
       row.order_data && typeof row.order_data === 'object'
@@ -1663,7 +1676,7 @@ async function applyPaymentOutcomeEffects(orderId, incomingPaymentStatus) {
 
     let bonusDelta = 0;
 
-    if (isPaid && !wasPaid && bonusEarned > 0 && !bonusData.earnedAppliedAt) {
+    if (transitionedToPaid && bonusEarned > 0 && !bonusData.earnedAppliedAt) {
       bonusDelta += bonusEarned;
       bonusData.earnedAppliedAt = now;
     }
@@ -1698,6 +1711,12 @@ async function applyPaymentOutcomeEffects(orderId, incomingPaymentStatus) {
 
     orderData.bonus = bonusData;
     orderData.status = resolveOrderStatusByPayment(nextPaymentStatus, orderData.status);
+    if (isPaid && !orderData.delivery_status) {
+      orderData.delivery_status = 'paid';
+    }
+    if (isFailed && orderData.delivery_status !== 'dispatched') {
+      orderData.delivery_status = 'cancelled';
+    }
 
     await client.query(
       `
@@ -1709,7 +1728,7 @@ async function applyPaymentOutcomeEffects(orderId, incomingPaymentStatus) {
     );
 
     await client.query('COMMIT');
-    return { ok: true };
+    return { ok: true, transitionedToPaid };
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Failed to apply payment outcome effects:', error);
@@ -1724,23 +1743,169 @@ function safeNumber(value) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
-function extractCallbackParams(req, rawBody) {
-  if (req && req.method === 'GET' && req.query && typeof req.query === 'object') {
-    return { ...req.query };
+async function tryCreateProviderShipmentForPaidOrder(orderId) {
+  const numericId = Number(orderId);
+  if (!Number.isFinite(numericId)) {
+    return { ok: false, code: 'invalid_order_id' };
   }
 
+  const orderResult = await pool.query(
+    `
+      SELECT id, order_data, payment_status
+      FROM order_history
+      WHERE id = $1
+    `,
+    [numericId],
+  );
+
+  if (orderResult.rowCount === 0) {
+    return { ok: false, code: 'order_not_found' };
+  }
+
+  const row = orderResult.rows[0];
+  const orderData =
+    row.order_data && typeof row.order_data === 'object'
+      ? JSON.parse(JSON.stringify(row.order_data))
+      : {};
+  const paymentStatus = normalizePaymentStatus(
+    row.payment_status,
+    orderData?.payment?.status ?? 'pending',
+  );
+  if (!isPaymentSuccessStatus(paymentStatus)) {
+    return { ok: false, code: 'payment_not_success' };
+  }
+
+  const deliveryData =
+    orderData.delivery && typeof orderData.delivery === 'object'
+      ? { ...orderData.delivery }
+      : null;
+  if (!deliveryData?.provider || !deliveryData?.type) {
+    return { ok: false, code: 'delivery_data_missing' };
+  }
+
+  const currentDispatch =
+    deliveryData.dispatch && typeof deliveryData.dispatch === 'object'
+      ? { ...deliveryData.dispatch }
+      : null;
+  if (deliveryData.delivery_status === 'dispatched' || currentDispatch?.status === 'created') {
+    return { ok: true, code: 'already_dispatched' };
+  }
+  if (orderData.delivery_status === 'dispatched') {
+    return { ok: true, code: 'already_dispatched' };
+  }
+
+  const requestPayload = {
+    provider: deliveryData.provider,
+    type: deliveryData.type,
+    order_id: numericId,
+    order_number: orderData.number ? String(orderData.number) : `AS-${numericId}`,
+    total_weight:
+      safeNumber(orderData.total_weight) ??
+      safeNumber(deliveryData.total_weight) ??
+      extractTotalWeight(orderData) ??
+      1,
+    pickup_point_id: deliveryData.pickup_point_id ?? null,
+    address: deliveryData.address ?? null,
+    recipient: deliveryData.recipient ?? null,
+    tariff_code:
+      deliveryData.tariff_code ??
+      deliveryData.tariffCode ??
+      deliveryData.provider_metadata?.tariff_code ??
+      null,
+    provider_metadata: deliveryData.provider_metadata ?? null,
+    items: Array.isArray(orderData.items) ? orderData.items : [],
+    comment: deliveryData.comment ?? null,
+  };
+
+  try {
+    const shipment = await createDeliveryShipment(requestPayload);
+    const now = new Date().toISOString();
+
+    orderData.delivery = {
+      ...deliveryData,
+      dispatch: {
+        ...(currentDispatch ?? {}),
+        status: 'created',
+        requested_at: now,
+        provider_order_id: shipment?.provider_order_id ?? null,
+        track_number: shipment?.track_number ?? null,
+        payload: shipment?.payload ?? requestPayload,
+        response: shipment?.response ?? null,
+      },
+      delivery_status: 'dispatched',
+    };
+    orderData.delivery_status = 'dispatched';
+
+    await pool.query(
+      `
+        UPDATE order_history
+        SET order_data = $2::jsonb
+        WHERE id = $1
+      `,
+      [numericId, JSON.stringify(orderData)],
+    );
+
+    return {
+      ok: true,
+      code: 'dispatched',
+      providerOrderId: shipment?.provider_order_id ?? null,
+      trackNumber: shipment?.track_number ?? null,
+    };
+  } catch (error) {
+    const now = new Date().toISOString();
+    const message = error instanceof Error ? error.message : String(error);
+
+    orderData.delivery = {
+      ...deliveryData,
+      dispatch: {
+        ...(currentDispatch ?? {}),
+        status: 'error',
+        requested_at: now,
+        error: message,
+      },
+      delivery_status: 'dispatch_error',
+    };
+    orderData.delivery_status = 'dispatch_error';
+
+    await pool.query(
+      `
+        UPDATE order_history
+        SET order_data = $2::jsonb
+        WHERE id = $1
+      `,
+      [numericId, JSON.stringify(orderData)],
+    );
+
+    return { ok: false, code: 'dispatch_error', message };
+  }
+}
+
+function extractCallbackParams(req, rawBody) {
+  const queryParams =
+    req && req.query && typeof req.query === 'object'
+      ? { ...req.query }
+      : {};
+
   if (req && req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
-    return { ...req.body };
+    return { ...queryParams, ...req.body };
   }
 
   const raw = typeof rawBody === 'string' ? rawBody.trim() : '';
-  if (!raw) return {};
+  if (!raw) return queryParams;
 
   try {
     const params = new URLSearchParams(raw);
-    return Object.fromEntries(params.entries());
+    return { ...queryParams, ...Object.fromEntries(params.entries()) };
   } catch {
-    return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return { ...queryParams, ...parsed };
+      }
+    } catch {
+      // ignore parse errors
+    }
+    return queryParams;
   }
 }
 
@@ -1767,14 +1932,16 @@ function verifyAlfaChecksum(params, secret, checksum) {
 
 function resolveAlfaCallbackStatus(params = {}) {
   const operation = String(params.operation ?? '').toLowerCase();
-  const status = String(params.status ?? '').toLowerCase();
+  const rawStatus = params.status;
+  const status = String(rawStatus ?? '').toLowerCase();
+  const hasStatus = status.length > 0;
   const isSuccess = status === '1' || status === 'true';
   const isFailed = status === '0' || status === 'false';
 
-  if (operation === 'deposited') return isSuccess ? 'paid' : 'declined';
-  if (operation === 'approved') return isSuccess ? 'authorized' : 'declined';
-  if (operation === 'reversed') return isSuccess ? 'cancelled' : 'declined';
-  if (operation === 'refunded') return isSuccess ? 'refunded' : 'declined';
+  if (operation === 'deposited') return !hasStatus || isSuccess ? 'paid' : 'declined';
+  if (operation === 'approved') return !hasStatus || isSuccess ? 'authorized' : 'declined';
+  if (operation === 'reversed') return !hasStatus || isSuccess ? 'cancelled' : 'declined';
+  if (operation === 'refunded') return !hasStatus || isSuccess ? 'refunded' : 'declined';
   if (operation === 'declinedbytimeout' || operation === 'declinedcardpresent') return 'declined';
   if (isSuccess) return 'success';
   if (isFailed) return 'declined';
