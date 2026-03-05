@@ -1426,10 +1426,24 @@ async function handleAlfaCallback(req, res) {
 
     const orderNumber = params.orderNumber ?? params.order_number ?? params.orderId ?? params.order_id ?? null;
     const orderId = orderNumber ? String(orderNumber) : null;
+    const callbackMdOrderRaw = params.mdOrder ?? params.mdorder ?? null;
+    const callbackMdOrder = callbackMdOrderRaw != null ? String(callbackMdOrderRaw).trim() : '';
 
     if (!orderId) {
       sendJson(res, 202, { ok: true });
       return;
+    }
+
+    const expectedGatewayOrderId = await getExpectedGatewayOrderId(orderId);
+    if (expectedGatewayOrderId) {
+      if (!callbackMdOrder) {
+        sendJson(res, 400, { message: 'Отсутствует mdOrder в callback.' });
+        return;
+      }
+      if (callbackMdOrder !== expectedGatewayOrderId) {
+        sendJson(res, 400, { message: 'mdOrder не соответствует заказу.' });
+        return;
+      }
     }
 
     const webhookStatus = resolveAlfaCallbackStatus(params);
@@ -1479,6 +1493,48 @@ async function handleAlfaCallback(req, res) {
     console.error('Alfa callback handling failed:', error);
     sendJson(res, 500, { message: 'Ошибка обработки callback.' });
   }
+}
+
+async function getExpectedGatewayOrderId(orderId) {
+  const numericId = Number(orderId);
+  if (!Number.isFinite(numericId)) return null;
+
+  const result = await pool.query(
+    `
+      SELECT payment_response, order_data
+      FROM order_history
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [numericId],
+  );
+
+  if (result.rowCount === 0) return null;
+  const row = result.rows[0] ?? {};
+  const response = row.payment_response && typeof row.payment_response === 'object'
+    ? row.payment_response
+    : {};
+  const orderData = row.order_data && typeof row.order_data === 'object'
+    ? row.order_data
+    : {};
+  const paymentBlock =
+    orderData.payment && typeof orderData.payment === 'object'
+      ? orderData.payment
+      : {};
+  const nestedResponse =
+    paymentBlock.response && typeof paymentBlock.response === 'object'
+      ? paymentBlock.response
+      : {};
+
+  const candidate =
+    response.gatewayOrderId ??
+    response.orderId ??
+    nestedResponse.gatewayOrderId ??
+    nestedResponse.orderId ??
+    null;
+
+  if (!candidate) return null;
+  return String(candidate).trim() || null;
 }
 
 async function persistPaymentSnapshot(orderId, patch = {}) {

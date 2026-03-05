@@ -9,6 +9,8 @@ const shipmentCreatePath = process.env.RUSPOST_SHIPMENT_CREATE_PATH || '/1.0/use
 const shipmentCreateUrl = process.env.RUSPOST_SHIPMENT_CREATE_URL || `${shipmentApiBase}${shipmentCreatePath}`;
 const ruspostAccessToken = process.env.RUSPOST_ACCESS_TOKEN || process.env.RUSPOST_API_KEY || '';
 const ruspostUserAuthorization = process.env.RUSPOST_USER_AUTH || '';
+const ruspostMailType = process.env.RUSPOST_MAIL_TYPE || 'POSTAL_PARCEL';
+const ruspostMailCategory = process.env.RUSPOST_MAIL_CATEGORY || 'ORDINARY';
 const isDev = process.env.NODE_ENV !== 'production';
 
 export async function searchPvz({ query, city, lat, lon }) {
@@ -262,8 +264,8 @@ export async function createShipment(options) {
 
   const payload = {
     'order-num': String(options?.order_number ?? options?.order_id ?? `AS-${Date.now()}`),
-    'mail-type': String(objectCode || '4030'),
-    'mail-category': 'ORDINARY',
+    'mail-type': String(ruspostMailType || 'POSTAL_PARCEL'),
+    'mail-category': String(ruspostMailCategory || 'ORDINARY'),
     'index-to': toIndex,
     mass: toWeightGrams(options?.total_weight),
     'recipient-name': recipient.name,
@@ -298,9 +300,9 @@ export async function createShipment(options) {
   }
 
   const response = await fetch(endpoint, {
-    method: 'POST',
+    method: 'PUT',
     headers,
-    body: JSON.stringify(payload),
+    body: JSON.stringify([payload]),
   });
 
   const bodyText = await safeText(response);
@@ -311,13 +313,34 @@ export async function createShipment(options) {
     throw new Error(`RUSPOST: не удалось создать отправление. ${message}`);
   }
 
+  const firstOrder = Array.isArray(data?.orders) ? data.orders[0] : null;
+  const firstResultId = Array.isArray(data?.['result-ids']) ? data['result-ids'][0] : null;
+  const firstError = Array.isArray(data?.errors) ? data.errors[0] : null;
   const providerOrderId =
+    firstOrder?.['result-id'] ??
+    firstResultId ??
     data?.provider_order_id ??
     data?.shipment_id ??
     data?.id ??
+    null;
+  const trackNumber =
+    firstOrder?.barcode ??
+    data?.track_number ??
     data?.barcode ??
     null;
-  const trackNumber = data?.track_number ?? data?.barcode ?? null;
+
+  if (!providerOrderId && firstError) {
+    const code =
+      firstError?.['error-code'] ??
+      firstError?.['error-codes']?.[0]?.code ??
+      'UNKNOWN_ERROR';
+    const details =
+      firstError?.['error-details'] ??
+      firstError?.['error-codes']?.[0]?.description ??
+      firstError?.['error-codes']?.[0]?.details ??
+      '';
+    throw new Error(`RUSPOST: не удалось создать отправление. ${code}${details ? `: ${details}` : ''}`);
+  }
 
   return {
     provider_order_id: providerOrderId ? String(providerOrderId) : null,
