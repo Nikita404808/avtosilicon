@@ -11,7 +11,6 @@ const ruspostAccessToken = process.env.RUSPOST_ACCESS_TOKEN || process.env.RUSPO
 const ruspostUserAuthorization = process.env.RUSPOST_USER_AUTH || '';
 const ruspostMailType = process.env.RUSPOST_MAIL_TYPE || 'POSTAL_PARCEL';
 const ruspostMailCategory = process.env.RUSPOST_MAIL_CATEGORY || 'ORDINARY';
-const ruspostMailDirect = Number(process.env.RUSPOST_MAIL_DIRECT ?? 643);
 const isDev = process.env.NODE_ENV !== 'production';
 
 export async function searchPvz({ query, city, lat, lon }) {
@@ -267,7 +266,6 @@ export async function createShipment(options) {
     'order-num': String(options?.order_number ?? options?.order_id ?? `AS-${Date.now()}`),
     'mail-type': String(ruspostMailType || 'POSTAL_PARCEL'),
     'mail-category': String(ruspostMailCategory || 'ORDINARY'),
-    'mail-direct': Number.isFinite(ruspostMailDirect) && ruspostMailDirect > 0 ? ruspostMailDirect : 643,
     'index-to': toIndex,
     mass: toWeightGrams(options?.total_weight),
     'recipient-name': recipient.name,
