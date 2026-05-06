@@ -22,6 +22,19 @@ function extractErrorText(payload) {
         return record.message.trim();
     return null;
 }
+function formatPublicDeliveryError(debugMessage, status) {
+    const normalized = debugMessage.replace(/^YANDEX:\s*/i, '').trim();
+    if (!normalized)
+        return DELIVERY_PUBLIC_ERROR_MESSAGE;
+    if (status && status >= 400 && status < 500) {
+        if (/not_present_in_tariff_line_strategy/i.test(normalized) ||
+            /нет доступного тарифа|вне зоны текущих тарифов|тарифной линейке/i.test(normalized)) {
+            return 'Для выбранного маршрута Яндекс-доставка сейчас недоступна. Выберите другой ПВЗ или доставку до двери.';
+        }
+        return normalized;
+    }
+    return DELIVERY_PUBLIC_ERROR_MESSAGE;
+}
 async function request(path, options) {
     const response = await fetch(buildAuthApiUrl(path), {
         ...options,
@@ -43,7 +56,8 @@ async function request(path, options) {
         if (import.meta.env.DEV) {
             console.error('[Delivery] API request failed', { path, status: response.status, debugMessage });
         }
-        throw new DeliveryRequestError(DELIVERY_PUBLIC_ERROR_MESSAGE, debugMessage, response.status);
+        const publicMessage = formatPublicDeliveryError(debugMessage, response.status);
+        throw new DeliveryRequestError(publicMessage, debugMessage, response.status);
     }
     return response.json();
 }
@@ -64,7 +78,8 @@ export async function calculateDelivery(body, options) {
         if (import.meta.env.DEV) {
             console.error('[Delivery] API returned error payload', { path: '/delivery/calculate', debugMessage });
         }
-        throw new DeliveryRequestError(DELIVERY_PUBLIC_ERROR_MESSAGE, debugMessage);
+        const publicMessage = formatPublicDeliveryError(debugMessage);
+        throw new DeliveryRequestError(publicMessage, debugMessage);
     }
     return result;
 }

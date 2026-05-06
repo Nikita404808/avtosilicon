@@ -12,6 +12,10 @@ import {
   listTariffs as listDeliveryTariffs,
   createShipment as createDeliveryShipment,
 } from './delivery/index.mjs';
+import {
+  isProviderAllowed as isDeliveryProviderAllowed,
+  isTypeAllowed as isDeliveryTypeAllowed,
+} from './delivery/config.mjs';
 
 const requiredEnv = ['DATABASE_URL'];
 const missingEnv = requiredEnv.filter((key) => !process.env[key]);
@@ -142,6 +146,7 @@ app.post('/api/delivery/pvz/search', (req, res) => {
 
 app.post('/api/delivery/calculate', (req, res) => handleDeliveryCalculate(req, res));
 app.post('/api/delivery/tariffs', (req, res) => handleDeliveryTariffs(req, res));
+app.post('/api/delivery/yandex/callback', (req, res) => handleYandexDeliveryCallback(req, res));
 app.get('/api/users/me', (req, res) => handleCurrentUser(req, res));
 app.get('/api/users/me/addresses', (req, res) => handleGetUserAddresses(req, res));
 app.post('/api/users/me/addresses', (req, res) => handleAddUserAddress(req, res));
@@ -479,10 +484,18 @@ async function handleDeliveryPvzSearch(req, res, requestUrl) {
 async function handleDeliveryCalculate(req, res) {
   try {
     const payload = await readJsonBody(req);
-    const { provider, type, total_weight, pickup_point_id, address, provider_metadata } = payload ?? {};
+    const { provider, type, total_weight, pickup_point_id, address, provider_metadata, recipient } = payload ?? {};
 
     if (!provider || !type) {
       sendJson(res, 400, { message: 'Провайдер и тип доставки обязательны.' });
+      return;
+    }
+    if (!isDeliveryProviderAllowed(String(provider).toLowerCase())) {
+      sendJson(res, 400, { message: 'Недопустимый провайдер доставки.' });
+      return;
+    }
+    if (!isDeliveryTypeAllowed(String(provider).toLowerCase(), String(type).toLowerCase())) {
+      sendJson(res, 400, { message: 'Недопустимый тип доставки для выбранного провайдера.' });
       return;
     }
     const weight = Number(total_weight);
@@ -520,6 +533,7 @@ async function handleDeliveryCalculate(req, res) {
       pickup_point_id,
       address,
       provider_metadata,
+      recipient,
     });
 
     sendJson(res, 200, quote);
@@ -554,10 +568,18 @@ async function handleDeliveryCalculate(req, res) {
 async function handleDeliveryTariffs(req, res) {
   try {
     const payload = await readJsonBody(req);
-    const { provider, type, total_weight, pickup_point_id, address, provider_metadata } = payload ?? {};
+    const { provider, type, total_weight, pickup_point_id, address, provider_metadata, recipient } = payload ?? {};
 
     if (!provider || !type) {
       sendJson(res, 400, { message: 'Провайдер и тип доставки обязательны.' });
+      return;
+    }
+    if (!isDeliveryProviderAllowed(String(provider).toLowerCase())) {
+      sendJson(res, 400, { message: 'Недопустимый провайдер доставки.' });
+      return;
+    }
+    if (!isDeliveryTypeAllowed(String(provider).toLowerCase(), String(type).toLowerCase())) {
+      sendJson(res, 400, { message: 'Недопустимый тип доставки для выбранного провайдера.' });
       return;
     }
 
@@ -596,6 +618,7 @@ async function handleDeliveryTariffs(req, res) {
       pickup_point_id,
       address,
       provider_metadata,
+      recipient,
     });
 
     sendJson(res, 200, { tariffs });
@@ -624,6 +647,82 @@ async function handleDeliveryTariffs(req, res) {
       ...(detail != null ? { detail } : {}),
       error: String(error?.message ?? error),
     });
+  }
+}
+
+async function handleYandexDeliveryCallback(req, res) {
+  try {
+    const payload = await readJsonBody(req);
+    const claimId = extractYandexClaimId(req, payload);
+    if (!claimId) {
+      sendJson(res, 400, { message: 'claim_id обязателен.' });
+      return;
+    }
+
+    const orderResult = await pool.query(
+      `
+        SELECT id, order_data
+        FROM order_history
+        WHERE order_data #>> '{delivery,dispatch,provider_order_id}' = $1
+        ORDER BY id DESC
+        LIMIT 1
+      `,
+      [claimId],
+    );
+    if (orderResult.rowCount === 0) {
+      sendJson(res, 202, { ok: true, message: 'Заказ для claim_id не найден.' });
+      return;
+    }
+
+    const row = orderResult.rows[0];
+    const orderId = Number(row.id);
+    const orderData =
+      row.order_data && typeof row.order_data === 'object'
+        ? JSON.parse(JSON.stringify(row.order_data))
+        : {};
+
+    const deliveryData =
+      orderData.delivery && typeof orderData.delivery === 'object'
+        ? { ...orderData.delivery }
+        : {};
+    const dispatchData =
+      deliveryData.dispatch && typeof deliveryData.dispatch === 'object'
+        ? { ...deliveryData.dispatch }
+        : {};
+
+    const yandexStatus = extractYandexStatus(payload);
+    const mapped = mapYandexStatus(yandexStatus);
+    const now = new Date().toISOString();
+
+    orderData.delivery = {
+      ...deliveryData,
+      dispatch: {
+        ...dispatchData,
+        status: mapped.dispatchStatus,
+        yandex_status: yandexStatus,
+        updated_at: now,
+        callback_payload: payload ?? null,
+      },
+      delivery_status: mapped.deliveryStatus,
+    };
+    orderData.delivery_status = mapped.deliveryStatus;
+
+    await pool.query(
+      `
+        UPDATE order_history
+        SET order_data = $2::jsonb
+        WHERE id = $1
+      `,
+      [orderId, JSON.stringify(orderData)],
+    );
+
+    sendJson(res, 200, { ok: true });
+  } catch (error) {
+    if (isClientError(error)) {
+      sendJson(res, 400, { message: error.message });
+      return;
+    }
+    handleServerError(res, error);
   }
 }
 
@@ -1002,9 +1101,12 @@ function extractToken(headerValue) {
 }
 
 function isClientError(error) {
+  const message = error instanceof Error ? error.message : '';
   return (
     error instanceof Error &&
     (/Невалидный JSON/.test(error.message) ||
+      /^YANDEX:/i.test(message) ||
+      /not_present_in_tariff_line_strategy/i.test(message) ||
       /^(RUSPOST|CDEK):/i.test(error.message) ||
       /обязател|недопустим|не удалось/i.test(error.message))
   );
@@ -1153,20 +1255,16 @@ function validateDelivery(rawDelivery) {
     return { ok: false, error: 'delivery обязателен.' };
   }
 
-  const provider = typeof delivery.provider === 'string' ? delivery.provider : '';
-  const type = typeof delivery.type === 'string' ? delivery.type : '';
+  const provider = typeof delivery.provider === 'string' ? delivery.provider.toLowerCase() : '';
+  const type = typeof delivery.type === 'string' ? delivery.type.toLowerCase() : '';
   if (!provider || !type) {
     return { ok: false, error: 'provider и type в delivery обязательны.' };
   }
-
-  const allowedProviders = ['cdek', 'ruspost'];
-  if (!allowedProviders.includes(provider)) {
+  if (!isDeliveryProviderAllowed(provider)) {
     return { ok: false, error: 'Недопустимый провайдер доставки.' };
   }
-
-  const allowedTypes = ['pvz', 'door'];
-  if (!allowedTypes.includes(type)) {
-    return { ok: false, error: 'Недопустимый тип доставки.' };
+  if (!isDeliveryTypeAllowed(provider, type)) {
+    return { ok: false, error: 'Недопустимый тип доставки для выбранного провайдера.' };
   }
 
   if (type === 'pvz' && !delivery.pickup_point_id) {
@@ -1180,6 +1278,59 @@ function validateDelivery(rawDelivery) {
   }
 
   return { ok: true, value: delivery };
+}
+
+function extractYandexClaimId(req, payload) {
+  const queryClaimId =
+    typeof req?.query?.claim_id === 'string'
+      ? req.query.claim_id.trim()
+      : '';
+  if (queryClaimId) return queryClaimId;
+
+  const bodyClaimId =
+    typeof payload?.claim_id === 'string'
+      ? payload.claim_id.trim()
+      : typeof payload?.id === 'string'
+        ? payload.id.trim()
+        : '';
+  return bodyClaimId || '';
+}
+
+function extractYandexStatus(payload) {
+  const candidates = [
+    payload?.status,
+    payload?.claim_status,
+    payload?.state,
+  ];
+  for (const value of candidates) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim().toLowerCase();
+    }
+  }
+  return 'unknown';
+}
+
+function mapYandexStatus(status) {
+  const value = typeof status === 'string' ? status.toLowerCase() : 'unknown';
+  if (value === 'delivered' || value === 'delivered_finish') {
+    return { deliveryStatus: 'delivered', dispatchStatus: 'delivered' };
+  }
+
+  if (value === 'returned_finish' || value === 'returning') {
+    return { deliveryStatus: 'returning', dispatchStatus: 'returning' };
+  }
+
+  if (
+    value === 'cancelled' ||
+    value === 'cancelled_with_payment' ||
+    value === 'failed' ||
+    value === 'estimating_failed' ||
+    value === 'performer_not_found'
+  ) {
+    return { deliveryStatus: 'dispatch_error', dispatchStatus: 'failed' };
+  }
+
+  return { deliveryStatus: 'dispatched', dispatchStatus: 'in_transit' };
 }
 
 async function ensureOrderPaymentColumns() {
@@ -1887,6 +2038,7 @@ async function tryCreateProviderShipmentForPaidOrder(orderId) {
         track_number: shipment?.track_number ?? null,
         payload: shipment?.payload ?? requestPayload,
         response: shipment?.response ?? null,
+        error: null,
       },
       delivery_status: 'dispatched',
     };

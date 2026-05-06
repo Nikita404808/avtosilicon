@@ -12,15 +12,21 @@
           <section class="checkout__section">
             <h3>Служба доставки</h3>
             <div class="checkout__choices">
-              <label v-for="option in providerOptions" :key="option.id" class="checkout__chip">
+              <label
+                v-for="option in providerOptions"
+                :key="option.id"
+                :class="['checkout__chip', { 'checkout__chip--disabled': option.disabled }]"
+              >
                 <input
                   name="delivery-provider"
                   type="radio"
                   :value="option.id"
                   :checked="deliveryDraft.provider === option.id"
+                  :disabled="option.disabled"
                   @change="onProviderChange(option.id)"
                 />
                 <span>{{ option.label }}</span>
+                <small v-if="option.hint">{{ option.hint }}</small>
               </label>
             </div>
           </section>
@@ -28,15 +34,21 @@
           <section class="checkout__section">
             <h3>Способ доставки</h3>
             <div class="checkout__choices">
-              <label v-for="option in typeOptions" :key="option.id" class="checkout__chip">
+              <label
+                v-for="option in typeOptions"
+                :key="option.id"
+                :class="['checkout__chip', { 'checkout__chip--disabled': option.disabled }]"
+              >
                 <input
                   name="delivery-type"
                   type="radio"
                   :value="option.id"
                   :checked="deliveryDraft.type === option.id"
+                  :disabled="option.disabled"
                   @change="onTypeChange(option.id)"
                 />
                 <span>{{ option.label }}</span>
+                <small v-if="option.hint">{{ option.hint }}</small>
               </label>
             </div>
           </section>
@@ -236,9 +248,10 @@ const emit = defineEmits<{
   ): void;
 }>();
 
-const providerOptions: Array<{ id: DeliveryServiceId; label: string }> = [
-  { id: 'cdek', label: 'СДЭК' },
+const providerOptions: Array<{ id: DeliveryServiceId; label: string; disabled?: boolean; hint?: string }> = [
+  { id: 'cdek', label: 'СДЭК', disabled: true, hint: 'в разработке' },
   { id: 'ruspost', label: 'Почта России' },
+  { id: 'yandex', label: 'Яндекс Доставка' },
 ];
 
 const typeOptions: Array<{ id: DeliveryType; label: string }> = [
@@ -624,6 +637,17 @@ function formatCurrency(amount: number, currency: string) {
   input {
     accent-color: var(--accent);
   }
+
+  small {
+    color: var(--text-secondary);
+    font-size: var(--fz-caption);
+    text-transform: lowercase;
+  }
+}
+
+.checkout__chip--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .checkout__points {

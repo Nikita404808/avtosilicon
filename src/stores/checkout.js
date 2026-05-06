@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia';
 import { calculateDelivery } from '@/services/deliveryService';
+const CDEK_PUBLIC_UNAVAILABLE = true;
 const STORAGE_KEY = 'deliveryDraft';
 const QUOTE_KEY = 'deliveryQuote';
 const defaultDraft = () => ({
-    provider: 'cdek',
+    provider: 'ruspost',
     type: 'pvz',
     pvzSearch: { city: '', query: '' },
     pvzResults: [],
@@ -67,7 +68,17 @@ export function createQuoteKey(draft, totalWeight) {
     const postalCode = draft.address?.postal_code ?? '';
     const street = draft.address?.street ?? '';
     const house = draft.address?.house ?? '';
-    return `${provider}|${type}|${totalWeight}|${pickupPointId}|${toCityCode}|${postalCode}|${street}|${house}`;
+    const recipientName = draft.recipient?.full_name ?? '';
+    const recipientPhone = draft.recipient?.phone ?? '';
+    return `${provider}|${type}|${totalWeight}|${pickupPointId}|${toCityCode}|${postalCode}|${street}|${house}|${recipientName}|${recipientPhone}`;
+}
+function normalizeProvider(value) {
+    const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    if (normalized === 'yandex')
+        return 'yandex';
+    if (normalized === 'cdek' && !CDEK_PUBLIC_UNAVAILABLE)
+        return 'cdek';
+    return 'ruspost';
 }
 function loadPersistedDraft() {
     try {
@@ -78,6 +89,7 @@ function loadPersistedDraft() {
         const draft = {
             ...defaultDraft(),
             ...parsed,
+            provider: normalizeProvider(parsed?.provider),
             pvzSearch: { ...defaultDraft().pvzSearch, ...(parsed?.pvzSearch ?? {}) },
             address: { ...defaultDraft().address, ...(parsed?.address ?? {}) },
             recipient: { ...defaultDraft().recipient, ...(parsed?.recipient ?? {}) },
@@ -140,7 +152,8 @@ export const useCheckoutStore = defineStore('checkout', {
             this.persistDraft();
         },
         setProvider(provider) {
-            this.deliveryDraft.provider = provider;
+            const normalizedProvider = normalizeProvider(provider);
+            this.deliveryDraft.provider = normalizedProvider;
             this.clearPvzSelection();
             this.deliveryDraft.provider_metadata = {};
             this.deliveryDraft.pvzResults = [];
@@ -179,11 +192,21 @@ export const useCheckoutStore = defineStore('checkout', {
             this.pvzError = message;
         },
         selectPvz(point) {
+            const pointLon = point?.lon ?? point?.lng;
             this.deliveryDraft.pickup_point_id = point?.id ?? null;
             this.deliveryDraft.pickup_point_address = point?.address ?? null;
             this.deliveryDraft.provider_metadata = {
                 ...(this.deliveryDraft.provider_metadata ?? {}),
                 ...(point?.city_code ? { to_city_code: point.city_code } : {}),
+                ...(this.deliveryDraft.provider === 'yandex' &&
+                    point?.lat != null &&
+                    pointLon != null
+                    ? {
+                        yandex_platform_station_id: point?.id ?? null,
+                        yandex_dropoff_coordinates: [Number(pointLon), Number(point.lat)],
+                        yandex_dropoff_fullname: point?.address ?? point?.name ?? null,
+                    }
+                    : {}),
             };
             this.resetQuote();
             this.persistDraft();
@@ -243,6 +266,7 @@ export const useCheckoutStore = defineStore('checkout', {
                     total_weight: totalWeight,
                     pickup_point_id: this.deliveryDraft.type === 'pvz' ? this.deliveryDraft.pickup_point_id : undefined,
                     address: this.deliveryDraft.type === 'door' ? this.deliveryDraft.address : undefined,
+                    recipient: this.deliveryDraft.recipient,
                     provider_metadata: Object.keys(this.deliveryDraft.provider_metadata ?? {}).length
                         ? this.deliveryDraft.provider_metadata
                         : undefined,

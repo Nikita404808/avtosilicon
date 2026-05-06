@@ -1,4 +1,4 @@
-export type DeliveryServiceId = 'cdek' | 'ruspost';
+export type DeliveryServiceId = 'cdek' | 'ruspost' | 'yandex';
 
 export type PickupPoint = {
   id: string;

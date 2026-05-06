@@ -23,6 +23,8 @@ export type DeliveryCalculationPayload = {
   total_weight: number;
   pickup_point_id?: string;
   address?: DeliveryAddress;
+  recipient?: DeliveryRecipient;
+  provider_metadata?: Record<string, unknown>;
 };
 
 export type DeliveryQuote = {

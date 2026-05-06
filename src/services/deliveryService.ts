@@ -25,6 +25,23 @@ function extractErrorText(payload: unknown): string | null {
   return null;
 }
 
+function formatPublicDeliveryError(debugMessage: string, status?: number): string {
+  const normalized = debugMessage.replace(/^YANDEX:\s*/i, '').trim();
+  if (!normalized) return DELIVERY_PUBLIC_ERROR_MESSAGE;
+
+  if (status && status >= 400 && status < 500) {
+    if (
+      /not_present_in_tariff_line_strategy/i.test(normalized) ||
+      /нет доступного тарифа|вне зоны текущих тарифов|тарифной линейке/i.test(normalized)
+    ) {
+      return 'Для выбранного маршрута Яндекс-доставка сейчас недоступна. Выберите другой ПВЗ или доставку до двери.';
+    }
+    return normalized;
+  }
+
+  return DELIVERY_PUBLIC_ERROR_MESSAGE;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(buildAuthApiUrl(path), {
     ...options,
@@ -48,7 +65,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       console.error('[Delivery] API request failed', { path, status: response.status, debugMessage });
     }
 
-    throw new DeliveryRequestError(DELIVERY_PUBLIC_ERROR_MESSAGE, debugMessage, response.status);
+    const publicMessage = formatPublicDeliveryError(debugMessage, response.status);
+    throw new DeliveryRequestError(publicMessage, debugMessage, response.status);
   }
 
   return response.json() as Promise<T>;
@@ -67,6 +85,7 @@ export async function calculateDelivery(body: {
   total_weight: number;
   pickup_point_id?: string | null;
   address?: Record<string, unknown>;
+  recipient?: Record<string, unknown>;
   provider_metadata?: Record<string, unknown>;
 }, options?: Pick<RequestInit, 'signal'>) {
   const result = await request<DeliveryCalculateResponse>('/delivery/calculate', {
@@ -80,7 +99,8 @@ export async function calculateDelivery(body: {
     if (import.meta.env.DEV) {
       console.error('[Delivery] API returned error payload', { path: '/delivery/calculate', debugMessage });
     }
-    throw new DeliveryRequestError(DELIVERY_PUBLIC_ERROR_MESSAGE, debugMessage);
+    const publicMessage = formatPublicDeliveryError(debugMessage);
+    throw new DeliveryRequestError(publicMessage, debugMessage);
   }
 
   return result;
@@ -92,6 +112,7 @@ export async function tariffs(body: {
   total_weight: number;
   pickup_point_id?: string | null;
   address?: Record<string, unknown>;
+  recipient?: Record<string, unknown>;
   provider_metadata?: Record<string, unknown>;
 }, options?: Pick<RequestInit, 'signal'>) {
   return request<{ tariffs: unknown[] }>('/delivery/tariffs', {

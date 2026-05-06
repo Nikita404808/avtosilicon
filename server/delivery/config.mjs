@@ -7,6 +7,10 @@ export const providersConfig = {
     label: 'Почта России',
     allowedTypes: ['pvz', 'door'],
   },
+  yandex: {
+    label: 'Яндекс Доставка',
+    allowedTypes: ['pvz', 'door'],
+  },
 };
 
 export function isProviderAllowed(provider) {

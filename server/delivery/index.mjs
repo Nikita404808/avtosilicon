@@ -1,10 +1,12 @@
 import { isProviderAllowed, isTypeAllowed } from './config.mjs';
 import * as cdek from './providers/cdek.mjs';
 import * as ruspost from './providers/ruspost.mjs';
+import * as yandex from './providers/yandex.mjs';
 
 const providerMap = {
   cdek,
   ruspost,
+  yandex,
 };
 
 export async function searchPvz(options) {
